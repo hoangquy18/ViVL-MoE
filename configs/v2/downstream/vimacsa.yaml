@@ -1,0 +1,4 @@
+# ViMACSA with the v2 backbone (classifier head as in v1). The aspect / review pair is joined with the text
+# tower's sep token (mmBERT's, not XLM-R's </s>): check it once on the GPU box (docs/runbook.md, 2.5).
+_include: [../../downstream/vimacsa.yaml, _defaults.yaml]
+run: {name: v2_vimacsa}

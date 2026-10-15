@@ -1,0 +1,8 @@
+# Captioning / VQA with the Qwen3.5 head: full fine-tuning of the LLM at a low rate, the new projector faster,
+# the backbone at the paper's downstream rate (the ViT-equivalent C-RADIO stays frozen by the task preset).
+_include: [_defaults.yaml]
+optim:
+  groups:
+    - {name: llm, modules: [llm], lr: 2.0e-5}
+    - {name: projector, modules: [projector], lr: 1.0e-4}
+    - {name: backbone, modules: [backbone], lr: 3.0e-5}

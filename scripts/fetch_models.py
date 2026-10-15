@@ -10,7 +10,14 @@ Usage::
 
     python scripts/fetch_models.py --only small     # clip-vit-base-patch32 + xlm-roberta-base (smoke tests)
     python scripts/fetch_models.py --only paper     # DFN ViT-H/14-378 + xlm-roberta-large + ViT5-large
-    python scripts/fetch_models.py                  # both
+    python scripts/fetch_models.py                  # both (v1)
+    python scripts/fetch_models.py --only v2        # v2 backbone (requirements-v2.txt environment)
+
+``--only v2`` completes the Hugging Face cache for C-RADIOv4-SO400M (at ``model.vision.revision`` of
+``configs/model/v2.yaml``), mmBERT-base, the SigLIP 2 giant / So400m towers and Qwen3.5-0.8B. These ship
+safetensors (sharded ones through ``model.safetensors.index.json``), so nothing is converted. C-RADIO's
+remote code is imported once here, by name and revision as the tower loads it, so the torchrun ranks find
+it cached instead of writing it concurrently. The printed commit is the one to pin as ``vision.revision``.
 """
 
 from __future__ import annotations
@@ -38,7 +45,15 @@ MODELS: dict[str, list[tuple[str, str, bool]]] = {
         ("FacebookAI/xlm-roberta-large", "text", False),
         ("VietAI/vit5-large", "t5", True),
     ],
+    "v2": [
+        ("nvidia/C-RADIOv4-SO400M", "radio", False),
+        ("jhu-clsp/mmBERT-base", "text", False),
+        ("google/siglip2-giant-opt-patch16-384", "siglip", False),  # distillation teacher
+        ("google/siglip2-so400m-patch14-384", "siglip", False),  # alternative vision tower
+        ("Qwen/Qwen3.5-0.8B", "llm", False),
+    ],
 }
+V2_PATTERNS = ["*.json", "*.py", "*.txt", "*.model", "*.jinja", "tokenizer*", "*.safetensors"]
 COMMON_PATTERNS = [
     "config.json",
     "generation_config.json",
@@ -67,6 +82,13 @@ EXPECTED = {
     "FacebookAI/xlm-roberta-base": {"hidden_size": 768},
     "VietAI/vit5-large": {"d_model": 1024, "decoder_start_token_id": 0},
     "VietAI/vit5-base": {"d_model": 768, "decoder_start_token_id": 0},
+    "jhu-clsp/mmBERT-base": {"hidden_size": 768},
+    "google/siglip2-giant-opt-patch16-384": {"vision.image_size": 384, "vision.patch_size": 16},
+    "google/siglip2-so400m-patch14-384": {
+        "vision.hidden_size": 1152,
+        "vision.image_size": 384,
+        "vision.patch_size": 14,
+    },
 }
 
 
@@ -83,6 +105,8 @@ def _cfg_value(cfg: object, dotted: str) -> object:
 def assert_expected(hf_id: str, path: str) -> None:
     from transformers import AutoConfig
 
+    if hf_id not in EXPECTED:
+        return
     cfg = AutoConfig.from_pretrained(path)
     for key, want in EXPECTED.get(hf_id, {}).items():
         got = _cfg_value(cfg, key)
@@ -155,6 +179,39 @@ def fetch_converted(hf_id: str, kind: str, models_dir: Path, keep_bin: bool) -> 
     return local_dir
 
 
+def v2_revisions() -> dict[str, str | None]:
+    """Pinned revisions of configs/model/v2.yaml (the C-RADIO remote code)."""
+    from vivlmoe.config.loader import from_dict, load_yaml_with_includes
+    from vivlmoe.config.schema import ModelCfg
+
+    raw = load_yaml_with_includes(REPO_ROOT / "configs" / "model" / "v2.yaml")["model"]
+    vision = from_dict(ModelCfg, raw, "model").vision
+    return {vision.name: vision.revision}
+
+
+def fetch_v2(hf_id: str, kind: str, revision: str | None) -> str:
+    """Complete the HF cache for a v2 model; returns the snapshot commit."""
+    from huggingface_hub import snapshot_download
+
+    snap = Path(snapshot_download(repo_id=hf_id, revision=revision, allow_patterns=V2_PATTERNS))
+    index = snap / "model.safetensors.index.json"
+    if index.exists():
+        shards = set(json.loads(index.read_text(encoding="utf-8"))["weight_map"].values())
+        missing = sorted(f for f in shards if not (snap / f).exists())
+        if missing:
+            raise SystemExit(f"{hf_id}: snapshot {snap} is missing shards {missing}")
+    elif not (snap / "model.safetensors").exists():
+        raise SystemExit(f"{hf_id}: no model.safetensors / model.safetensors.index.json in {snap}")
+    if kind == "radio":
+        from transformers import AutoConfig
+
+        AutoConfig.from_pretrained(hf_id, revision=revision, trust_remote_code=True)
+        print(f"  imported the remote code of {hf_id} (trust_remote_code)")
+    print(f"  cached {hf_id} at {snap}")
+    assert_expected(hf_id, str(snap))
+    return snap.name
+
+
 def register_paths(mapping: dict[str, str]) -> None:
     import yaml
 
@@ -176,7 +233,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--only", choices=["small", "paper", "all"], default="all")
+    parser.add_argument(
+        "--only", choices=["small", "paper", "v2", "all"], default="all", help="all = small + paper"
+    )
     parser.add_argument("--models-dir", default=str(REPO_ROOT / "models"))
     parser.add_argument(
         "--keep-bin", action="store_true", help="keep pytorch_model.bin after conversion"
@@ -186,8 +245,19 @@ def main() -> int:
     groups = ["small", "paper"] if args.only == "all" else [args.only]
     models_dir = Path(args.models_dir)
     mapping: dict[str, str] = {}
+    commits: dict[str, str] = {}
     for group in groups:
         print(f"== {group} ==")
+        if group == "v2":
+            revisions = v2_revisions()
+            for hf_id, kind, _ in MODELS[group]:
+                commits[hf_id] = fetch_v2(hf_id, kind, revisions.get(hf_id))
+            for hf_id, rev in revisions.items():
+                if rev is None:
+                    print(
+                        f"  pin it: model.vision.revision: {commits[hf_id]} (configs/model/v2.yaml)"
+                    )
+            continue
         for hf_id, kind, needs_conversion in MODELS[group]:
             if needs_conversion or not fetch_cached(hf_id, kind):
                 local_dir = fetch_converted(hf_id, kind, models_dir, args.keep_bin)
@@ -197,11 +267,8 @@ def main() -> int:
                     mapping[hf_id] = str(local_dir)
     if mapping:
         register_paths(mapping)
-    print(
-        json.dumps(
-            {"fetched": [m[0] for g in groups for m in MODELS[g]], "converted": mapping}, indent=2
-        )
-    )
+    fetched = [m[0] for g in groups for m in MODELS[g]]
+    print(json.dumps({"fetched": fetched, "converted": mapping, "commits": commits}, indent=2))
     return 0
 
 

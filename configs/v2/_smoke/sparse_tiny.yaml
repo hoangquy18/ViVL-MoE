@@ -1,0 +1,11 @@
+# CPU smoke: v2 sparse training of the upcycled smoke checkpoint (configs/_smoke/moe_tiny.yaml schedule,
+# routing probe every 2 steps); the sigmoid loss and the RADIO stub come with the inherited model section.
+_include: [../../_smoke/moe_tiny.yaml]
+run: {name: sparse_tiny, dir: runs/_smoke_v2}
+model: {from_checkpoint: runs/_smoke_v2/upcycle_tiny/upcycled.pt}
+init_from: {path: runs/_smoke_v2/upcycle_tiny/upcycled.pt, load: [all]}
+data:
+  train: {root: runs/_smoke_v2/synthetic_data}
+  evals:
+    dev: {root: runs/_smoke_v2/synthetic_data}
+  transform: {source: tower}

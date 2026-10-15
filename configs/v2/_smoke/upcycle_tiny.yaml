@@ -1,0 +1,5 @@
+# CPU smoke: upcycle the dense v2 align smoke checkpoint (configs/_smoke/upcycle_tiny.yaml topology).
+_include: [../../_smoke/upcycle_tiny.yaml]
+run: {name: upcycle_tiny, dir: runs/_smoke_v2}
+model: {from_checkpoint: runs/_smoke_v2/align_tiny/checkpoints/best.pt}
+data: {transform: {source: tower}}

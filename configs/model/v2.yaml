@@ -1,0 +1,25 @@
+# ViVL-MoE v2 backbone (docs/architecture_v2.md): frozen C-RADIOv4-SO400M at 512 px, mmBERT-base distilled
+# from the SigLIP 2 giant text tower, the paper's resampler (64 latents) and 12-layer f_enc (768), the
+# SigLIP sigmoid loss, and a Qwen3.5-0.8B generation head fed the joint states.
+# Expected at build: (512/16)^2 = 1024 vision tokens x 1152, d_t 768, teacher width = the SigLIP 2 g joint
+# space (text_config.projection_size). Download: python scripts/fetch_models.py --only v2 (also prints the
+# C-RADIO commit to pin as vision.revision: its remote code runs with trust_remote_code).
+_include: [paper.yaml]
+model:
+  vision: {kind: radio, name: nvidia/C-RADIOv4-SO400M, revision: null, image_size: 512}
+  text: {arch: modernbert, name: jhu-clsp/mmBERT-base}
+  contrastive_head: sigmoid
+  logit_scale_init: 0.1          # SigLIP init: t = 1 / 0.1 = 10, b = -10
+  logit_bias_init: -10.0
+  stage1:
+    teacher_kind: siglip
+    teacher_name: google/siglip2-giant-opt-patch16-384
+    teacher_lowercase: true      # SigLIP 2 was trained on lower-cased text
+    student_pooling: mean
+    teacher_target: projected
+    loss_preset: legacy          # MSE of L2-normalised vectors: matches directions, which the joint space compares
+  generation:
+    kind: causal_lm
+    name: Qwen/Qwen3.5-0.8B
+    llm_class: Qwen3_5ForCausalLM   # the text class: AutoModelForCausalLM re-initialises the LM (transformers#49324)
+    projector: mlp2

@@ -1,0 +1,35 @@
+# CPU smoke (end of the v2 chain): captioning with the LLM head on the sparse smoke checkpoint, whose sidecar
+# supplies the model section, as configs/v2/downstream/* inherit runs/v2_moe_sparse. Same task, data and
+# schedule as caption_tiny.yaml, plus the routing probe.
+_include: [../../_base/train_defaults.yaml]
+run: {name: caption_moe_tiny, dir: runs/_smoke_v2, seed: 0}
+model: {from_checkpoint: runs/_smoke_v2/sparse_tiny/checkpoints/best.pt}
+init_from: {path: runs/_smoke_v2/sparse_tiny/checkpoints/best.pt, load: [all]}
+task:
+  name: captioning
+  max_target_len: 12
+  llm_prompt_template: "mô tả bức ảnh :"
+  metrics: [bleu4, rougeL]
+  generation: {num_beams: 2, max_new_tokens: 4, min_new_tokens: 1}
+data:
+  train: {kind: synthetic_caption, split: train, options: {num_samples: 16, captions_per_image: 2, image_size: 32, seed: 1}}
+  evals:
+    dev: {kind: synthetic_caption, split: dev, options: {num_samples: 8, captions_per_image: 2, image_size: 32, seed: 1}}
+  batch_size: 2
+  eval_batch_size: 4
+  num_workers: 0
+  pin_memory: false
+  persistent_workers: false
+  transform: {source: tower}
+optim:
+  lr: 1.0e-3
+  groups:
+    - {name: llm, modules: [llm], lr: 1.0e-3}
+    - {name: projector, modules: [projector], lr: 1.0e-3}
+    - {name: backbone, modules: [backbone], lr: 1.0e-4}
+schedule: {kind: cosine, warmup_ratio: 0.25}
+train: {max_steps: 4, grad_accum_steps: 2, amp: {enabled: false}, log_every: 1}
+eval: {every_steps: 2, every_epochs: null, selection_metric: dev/bleu4, selection_mode: max, final_splits: [dev]}
+checkpoint: {every_steps: 2, every_epochs: null, keep_last_n: 1}
+analysis: {routing_probe: {split: dev, every_steps: 2, max_batches: 2}}
+logging: {tensorboard: false}

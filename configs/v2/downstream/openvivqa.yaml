@@ -1,0 +1,8 @@
+# OpenViVQA with the v2 backbone and the Qwen3.5 head: the question enters the joint pass (mmBERT) and the
+# LLM prompt. Long free-form answers.
+_include: [../../downstream/openvivqa.yaml, _llm_head.yaml]
+run: {name: v2_openvivqa}
+task:
+  llm_prompt_template: "Câu hỏi: {question}\nTrả lời:"
+  max_target_len: 96
+  generation: {max_new_tokens: 96}

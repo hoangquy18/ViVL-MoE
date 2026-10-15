@@ -151,21 +151,31 @@ class HFImageCaptionCorpus(BaseAdapter):
 
 @register_dataset("mixture")
 class MixtureCorpus(BaseAdapter):
-    """``options.sources``: list of DataSourceCfg mappings (each validated by its own adapter and
-    run through its own pipeline, including image checks). Either all image-text sources or all
-    parallel-text sources (text-only: no image store)."""
+    """``options.sources``: DataSourceCfg mappings, as a list or as a mapping name -> source (each
+    validated by its own adapter and run through its own pipeline, including image checks). Named
+    sources can be overridden from the CLI (``data.train.options.sources.phomt.root=...``) and a
+    ``null`` one is left out. Either all image-text sources or all parallel-text sources
+    (text-only: no image store)."""
 
     @dataclass
     class Options:
-        sources: list[dict[str, Any]] = field(default_factory=list)
+        sources: list[dict[str, Any]] | dict[str, dict[str, Any] | None] = field(
+            default_factory=list
+        )
 
     def __init__(self, cfg: DataSourceCfg, options: Any, run_dir: str | Path | None = None) -> None:
         super().__init__(cfg, options, run_dir)
-        if not options.sources:
+        named = (
+            options.sources.items()
+            if isinstance(options.sources, dict)
+            else ((f"[{i}]", src) for i, src in enumerate(options.sources))
+        )
+        active = [(name, src) for name, src in named if src is not None]
+        if not active:
             raise ValueError("mixture: options.sources must list at least one source")
         self.sub_cfgs = [
-            from_dict(DataSourceCfg, src, path=f"data.<mixture>.options.sources[{i}]")
-            for i, src in enumerate(options.sources)
+            from_dict(DataSourceCfg, src, path=f"data.<mixture>.options.sources.{name}")
+            for name, src in active
         ]
         self.adapters = [build_adapter(c, run_dir) for c in self.sub_cfgs]
 

@@ -125,3 +125,32 @@ def test_text_mixture_of_captions_and_phomt(tmp_path: Path) -> None:
     mixed = DataSourceCfg(kind="mixture", options={"sources": [image_src, cap_src]})
     with pytest.raises(TypeError, match="caption_text yields ParallelTextRecord"):
         build_adapter(mixed).load_split("train")
+
+
+def test_named_mixture_sources_can_be_overridden_and_disabled(tmp_path: Path) -> None:
+    from vivlmoe.config.loader import deep_merge, parse_overrides
+
+    _jsonl(tmp_path / "cap" / "c.jsonl", [{"caption": "chó"}])
+    _write_phomt(tmp_path / "phomt", ["a dog"], ["con chó"])
+    options = {
+        "sources": {
+            "captions": {
+                "kind": "caption_text",
+                "root": "unset",
+                "splits": {"train": {"file": "c.jsonl"}},
+            },
+            "phomt": {"kind": "phomt", "root": str(tmp_path / "phomt")},
+        }
+    }
+    cli = parse_overrides([f"sources.captions.root={tmp_path / 'cap'}"])
+    recs = build_adapter(DataSourceCfg(kind="mixture", options=deep_merge(options, cli)))
+    assert [r.tgt for r in recs.load_split("train")] == ["chó", "con chó"]
+    off = deep_merge(
+        options,
+        parse_overrides([f"sources.captions.root={tmp_path / 'cap'}", "sources.phomt=null"]),
+    )
+    assert [
+        r.tgt for r in build_adapter(DataSourceCfg(kind="mixture", options=off)).load_split("train")
+    ] == ["chó"]
+    with pytest.raises(ValueError, match="at least one source"):
+        build_adapter(DataSourceCfg(kind="mixture", options={"sources": {"a": None}}))

@@ -1,0 +1,8 @@
+# v2 step 4 - sparse MoE pretraining: configs/moe/sparse_train.yaml (20K steps, lr 1e-5, vision frozen,
+# router stabilisers, routing probe) on the v2 upcycled checkpoint. The sigmoid loss and the C-RADIO
+# tower come with the inherited model section.
+_include: [../moe/sparse_train.yaml]
+run: {name: v2_moe_sparse}
+model: {from_checkpoint: runs/v2_moe_upcycled/upcycled.pt}
+init_from: {path: runs/v2_moe_upcycled/upcycled.pt, load: [all]}
+data: {transform: {source: tower}}

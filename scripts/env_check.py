@@ -1,5 +1,8 @@
 #!/usr/bin/env python
-"""Verify the Python environment can run ViVL-MoE (imports, versions, model loading gate, HF cache)."""
+"""Verify the Python environment can run ViVL-MoE (imports, versions, model loading gate, HF cache).
+
+``--v2`` also checks the v2 requirements (timm, torch>=2.6, transformers with Qwen3.5).
+"""
 
 from __future__ import annotations
 
@@ -32,8 +35,42 @@ def _version(mod: object) -> str:
     return str(getattr(mod, "__version__", getattr(mod, "VERSION", "?")))
 
 
+def check_v2() -> bool:
+    """The v2 path: timm (C-RADIO remote code), torch>=2.6, transformers with Qwen3.5."""
+    ok = True
+    print("== v2 (requirements-v2.txt) ==")
+    try:
+        import timm
+
+        print(f"  ok   timm               {_version(timm)}")
+    except ImportError:
+        ok = False
+        print("  MISS timm (C-RADIO's remote code imports it)")
+    import torch
+    import transformers
+
+    if tuple(int(x) for x in torch.__version__.split("+")[0].split(".")[:2]) < (2, 6):
+        ok = False
+        print(f"  MISS torch>=2.6 (have {torch.__version__})")
+    has_qwen35 = hasattr(transformers, "Qwen3_5ForCausalLM")
+    ok = ok and has_qwen35
+    print(
+        f"  {'ok  ' if has_qwen35 else 'MISS'} transformers {transformers.__version__} "
+        f"{'has' if has_qwen35 else 'lacks'} Qwen3_5ForCausalLM (needs >= 5.2)"
+    )
+    for name in ("fla", "causal_conv1d"):  # fast linear-attention kernels of Qwen3.5 (optional)
+        try:
+            importlib.import_module(name)
+            print(f"  ok   {name} (fast path)")
+        except Exception:  # noqa: BLE001
+            print(f"  --   {name} (optional: Qwen3.5 linear attention falls back to torch)")
+    return ok
+
+
 def main() -> int:
     ok = True
+    if "--v2" in sys.argv[1:]:
+        ok = check_v2()
     print("== required modules ==")
     for name in REQUIRED:
         try:

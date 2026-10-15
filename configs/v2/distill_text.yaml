@@ -1,0 +1,40 @@
+# v2 step 1 - text distillation (replaces the paper's Stage 1): mmBERT-base (masked mean -> FC1) regresses
+# the frozen SigLIP 2 giant text tower's joint-space embedding. The teacher is multilingual, so corpus
+# captions are distilled caption -> same caption; PhoMT adds English -> Vietnamese pairs (optional:
+# data.train.options.sources.phomt=null). Effective batch 256 x accum 2 x 4 GPUs = 2048.
+# Model selection: R@K in the SigLIP 2 joint space on the KTVIC dev holdout (student text vs the teacher's
+# image tower, Appendix A style); the teacher distance on PhoMT dev is logged.
+_include: [../_base/train_defaults.yaml, ../model/v2.yaml, ../data/evals_retrieval.yaml]
+run: {name: v2_distill_text, dir: runs}
+task: {name: stage1_teacher, eval_clip_retrieval: true}
+data:
+  train:
+    kind: mixture
+    split: train
+    options:
+      sources:
+        captions:
+          kind: caption_text
+          root: dataset              # relative to the repo root; GPU box: DATA_ROOT
+          splits: {train: {file: corpus/pretrain_corpus.jsonl}}
+          text_normalize: pretrain   # as the alignment stages read the corpus
+        phomt:
+          kind: phomt
+          root: dataset/PhoMT        # GPU box: PHOMT_ROOT
+          options: {variant: detokenization, max_train_samples: 2000000, subset_strategy: head}
+  evals:
+    phomt_dev: {kind: phomt, split: dev, root: dataset/PhoMT, options: {variant: detokenization}}
+  batch_size: 256                    # per rank; x grad_accum_steps 2 x world 4 = 2048
+  eval_batch_size: 256
+  transform: {source: tower}         # the dev retrieval uses the teacher's own preprocessing
+  tokenizer: {vi_max_len: 64, en_max_len: 64}
+optim: {lr: 1.0e-4, weight_decay: 0.01, freeze_preset: stage1}   # text_encoder + fc1 trainable
+schedule: {kind: cosine, warmup_ratio: 0.05}
+train:
+  epochs: 2
+  grad_accum_steps: 2
+  amp: {enabled: true, dtype: bf16}
+  log_every: 50
+  early_stopping: {enabled: true, patience: 3}
+eval: {every_steps: 500, every_epochs: null, selection_metric: ktvic_dev/rsum, selection_mode: max}
+checkpoint: {every_steps: 500, every_epochs: null, keep_last_n: 2, save_best: true}

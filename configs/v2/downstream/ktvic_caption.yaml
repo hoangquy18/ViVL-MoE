@@ -1,0 +1,7 @@
+# KTVIC captioning with the v2 backbone and the Qwen3.5 head (data, metrics and splits as in v1).
+_include: [../../downstream/ktvic_caption.yaml, _llm_head.yaml]
+run: {name: v2_ktvic_caption}
+task:
+  llm_prompt_template: "Mô tả bức ảnh:"
+  max_target_len: 64               # LLM tokens incl. EOS
+  generation: {max_new_tokens: 60}

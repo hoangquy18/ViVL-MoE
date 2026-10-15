@@ -1,0 +1,7 @@
+# v2 downstream overrides, applied after a v1 per-dataset file (configs/downstream/*.yaml): the model section
+# is inherited from the v2 sparse checkpoint (C-RADIO + mmBERT + MoE f_enc, and the Qwen3.5 head settings of
+# configs/model/v2.yaml), tower transforms, and one checkpoint kept (the 0.8B LLM makes each one several GB).
+model: {from_checkpoint: runs/v2_moe_sparse/checkpoints/best.pt}
+init_from: {path: runs/v2_moe_sparse/checkpoints/best.pt, load: [all]}
+data: {transform: {source: tower}}
+checkpoint: {keep_last_n: 1}

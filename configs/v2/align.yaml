@@ -1,0 +1,29 @@
+# v2 step 2 - dense alignment (replaces the paper's Stages 2 + 3): SigLIP sigmoid loss over the pretraining
+# corpus. C-RADIO stays frozen (preset sparse: only the vision tower frozen, so W_v trains from the start),
+# mmBERT starts from the distilled student (init_from text_encoder). Effective batch 128 x accum 4 x 4 GPUs
+# = 2048; each rank scores its 128 images against all 512 texts of the step (texts are all-gathered).
+_include: [../_base/train_defaults.yaml, ../model/v2.yaml, ../data/pretrain_corpus.yaml, ../data/evals_retrieval.yaml]
+run: {name: v2_align, dir: runs}
+task: {name: contrastive}
+init_from: {path: runs/v2_distill_text/checkpoints/best.pt, load: [text_encoder]}
+data:
+  batch_size: 128                    # per rank; x grad_accum_steps 4 x world 4 = 2048
+  eval_batch_size: 128
+  one_caption_per_image: true
+  transform: {source: tower}
+  tokenizer: {vi_max_len: 64}
+optim:
+  weight_decay: 0.01
+  freeze_preset: sparse              # vision_encoder frozen
+  groups:
+    - {name: text, modules: [text_encoder], lr: 3.0e-5}   # distilled: a lower rate keeps it
+    - {name: fusion, modules: [vision_proj, text_proj, resampler, encoder, modality_embed, logit_scale, logit_bias], lr: 1.0e-4}
+schedule: {kind: cosine, warmup_ratio: 0.05}
+train:
+  epochs: 6
+  grad_accum_steps: 4
+  amp: {enabled: true, dtype: bf16}
+  log_every: 50
+  early_stopping: {enabled: true, patience: 2}
+eval: {every_steps: null, every_epochs: 1, selection_metric: ktvic_dev/rsum, selection_mode: max}
+checkpoint: {every_steps: null, every_epochs: 1, keep_last_n: 2, save_best: true}

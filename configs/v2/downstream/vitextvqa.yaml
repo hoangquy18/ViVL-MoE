@@ -1,0 +1,7 @@
+# ViTextVQA with the v2 backbone and the Qwen3.5 head (short scene-text answers).
+_include: [../../downstream/vitextvqa.yaml, _llm_head.yaml]
+run: {name: v2_vitextvqa}
+task:
+  llm_prompt_template: "Câu hỏi: {question}\nTrả lời:"
+  max_target_len: 32
+  generation: {max_new_tokens: 32}

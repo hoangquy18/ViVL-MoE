@@ -1,0 +1,4 @@
+# v2 with the SigLIP 2 So400m image tower instead of C-RADIO (frozen, 384 px, patch 14 -> 729 tokens x 1152).
+_include: [v2.yaml]
+model:
+  vision: {kind: siglip, name: google/siglip2-so400m-patch14-384, image_size: null}

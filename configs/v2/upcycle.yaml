@@ -1,0 +1,7 @@
+# v2 step 3 - sparse upcycling of the dense v2_align checkpoint, same MoE topology as v1 (1 shared + 8 routed,
+# top-2, aux-free bias): configs/moe/upcycle.yaml with the v2 paths.
+#   python scripts/upcycle.py --config configs/v2/upcycle.yaml --out runs/v2_moe_upcycled/upcycled.pt
+_include: [../moe/upcycle.yaml]
+run: {name: v2_moe_upcycled}
+model: {from_checkpoint: runs/v2_align/checkpoints/best.pt}
+data: {transform: {source: tower}}   # not used by upcycle.py; keeps the config valid for load_config
