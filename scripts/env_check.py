@@ -39,7 +39,8 @@ def check_v2() -> bool:
     """The v2 path: timm (C-RADIO remote code), torch>=2.6, transformers with Qwen3.5."""
     ok = True
     print("== v2 (requirements-v2.txt) ==")
-    for name in ("timm", "einops", "distutils"):  # imported by C-RADIO's remote code
+    # imported by C-RADIO's remote code (transformers checks every import line outside try/except)
+    for name in ("timm", "einops", "open_clip", "distutils"):
         try:
             mod = importlib.import_module(name)
             print(f"  ok   {name:18s} {_version(mod)}")
