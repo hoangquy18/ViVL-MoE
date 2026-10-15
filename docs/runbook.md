@@ -284,6 +284,21 @@ Luôn chạy `--dry-run` trước mỗi stage trên máy GPU để xem memory.
 Kiến trúc ở `docs/architecture_v2.md`. Chạy trong môi trường `requirements-v2.txt`, sau hai phép kiểm tra ở mục 2.5.
 Mỗi run v2 có tên riêng (`runs/v2_*`), nên không đụng run v1.
 
+Config v2 được chỉnh cho **1 A40 (48 GB)**. `run_pretrain.sh` tự đếm GPU, và batch hiệu dụng bằng
+`batch_size × grad_accum_steps × số GPU`. Thời gian ước lượng thô trên 1 A40 (C-RADIO ở 512 px chiếm phần lớn):
+
+| bước | batch / bước tối ưu | ngân sách | thời gian |
+|---|---|---|---|
+| distill | 256 × accum 2 = 512 | 2 epoch, ~3,2 triệu cặp | ~4–5 giờ |
+| align | 256 × accum 2 = 512 | 6 epoch × 378K ảnh | ~10–12 giờ |
+| upcycle | – | – | vài phút |
+| sparse | 256 × accum 2 = 512 | 6.000 step ≈ 3,1 triệu mẫu (paper: 20K × 2048, ~10 ngày trên 1 GPU) | ~13–15 giờ |
+| downstream | 8 × accum 4 = 32 (như paper) | 10 epoch | caption ~2 giờ/run; VQA 3–10 giờ/run |
+
+Hết bộ nhớ (OOM) khi align/sparse: `data.batch_size=128 train.grad_accum_steps=4`. Ở downstream:
+`model_overrides.generation.gradient_checkpointing=true`, hoặc `data.batch_size=4 train.grad_accum_steps=8`.
+Chạy `PREFLIGHT=1` trước là bắt được lỗi này ngay ở step đầu.
+
 ```bash
 # Tải model v2 (C-RADIOv4-SO400M, mmBERT-base, SigLIP 2 g + So400m, Qwen3.5-0.8B) vào cache HF và nạp sẵn code
 # remote của C-RADIO. Lần đầu: ghim commit được in ra vào model.vision.revision của configs/model/v2.yaml.
@@ -297,10 +312,10 @@ mkdir -p runs && tmux new -s v2 'PIPELINE=v2 bash scripts/run_pretrain.sh 2>&1 |
 DISTILL_PHOMT=0 PIPELINE=v2 bash scripts/run_pretrain.sh distill
 
 # Từng bước bằng tay
-torchrun --nproc_per_node 4 scripts/train.py --config configs/v2/distill_text.yaml
-torchrun --nproc_per_node 4 scripts/train.py --config configs/v2/align.yaml
+torchrun --nproc_per_node 1 scripts/train.py --config configs/v2/distill_text.yaml
+torchrun --nproc_per_node 1 scripts/train.py --config configs/v2/align.yaml
 python scripts/upcycle.py --config configs/v2/upcycle.yaml --out runs/v2_moe_upcycled/upcycled.pt
-torchrun --nproc_per_node 4 scripts/train.py --config configs/v2/sparse.yaml
+torchrun --nproc_per_node 1 scripts/train.py --config configs/v2/sparse.yaml
 ```
 
 | muốn chỉnh | ở đâu | ghi chú |
@@ -398,9 +413,11 @@ Kết quả sweep: `runs/<name>_sweep/sweep_summary.json` và `sweep_summary.md`
 include file v1 cùng tên, nên vẫn sửa root dữ liệu ở file v1.
 
 ```bash
-python scripts/sweep_seeds.py --config configs/v2/downstream/ktvic_caption.yaml --seeds 0 1 2 3 4 --nproc 4
-python scripts/sweep_seeds.py --config configs/v2/downstream/openvivqa.yaml     --seeds 0 1 2 3 4 --nproc 4
-python scripts/sweep_seeds.py --config configs/v2/downstream/vimacsa.yaml       --seeds 0 1 2 3 4 --nproc 4
+# 1 A40: thử 1 seed cho mỗi dataset trước, rồi mới chạy đủ 5 seed cho số liệu cuối
+python scripts/sweep_seeds.py --config configs/v2/downstream/ktvic_caption.yaml --seeds 0 --nproc 1
+python scripts/sweep_seeds.py --config configs/v2/downstream/ktvic_caption.yaml --seeds 0 1 2 3 4 --nproc 1
+python scripts/sweep_seeds.py --config configs/v2/downstream/openvivqa.yaml     --seeds 0 1 2 3 4 --nproc 1
+python scripts/sweep_seeds.py --config configs/v2/downstream/vimacsa.yaml       --seeds 0 1 2 3 4 --nproc 1
 ```
 
 | muốn chỉnh (v2) | ở đâu |

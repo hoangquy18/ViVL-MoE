@@ -53,6 +53,7 @@ def test_distill_and_align_configs() -> None:
     assert a.init_from is not None and a.init_from.load == ["text_encoder"]
     assert a.init_from.path == "runs/v2_distill_text/checkpoints/best.pt"
     assert a.data.transform.source == "tower" and a.model.contrastive_head == "sigmoid"
+    assert (a.data.batch_size, a.train.grad_accum_steps) == (256, 2)  # one A40: 512 per step
     # the groups cover every trainable v2 backbone parameter (strict coverage)
     model = build_task_model("backbone", load_model_cfg(V2_TINY))
     apply_freeze(model, freeze_paths_for_preset(model, a.optim.freeze_preset))
@@ -84,8 +85,9 @@ def test_upcycle_and_sparse_configs(tmp_path: Path) -> None:
     sp = load_config(
         V2 / "sparse.yaml", [f"model.from_checkpoint={upcycled}", f"init_from.path={upcycled}"]
     )
-    assert sp.run.name == "v2_moe_sparse" and sp.optim.lr == 1.0e-5 and sp.train.max_steps == 20000
+    assert sp.run.name == "v2_moe_sparse" and sp.optim.lr == 1.0e-5 and sp.train.max_steps == 6000
     assert sp.data.transform.source == "tower" and sp.optim.freeze_preset == "sparse"
+    assert (sp.data.batch_size, sp.train.grad_accum_steps) == (256, 2)
 
 
 @pytest.mark.parametrize("name", [*GENERATION, "vimacsa"])
@@ -94,6 +96,7 @@ def test_downstream_configs(name: str, tmp_path: Path, monkeypatch: pytest.Monke
     _sidecar(tmp_path / "runs" / "v2_moe_sparse" / "checkpoints" / "best.pt", MOE)
     cfg = load_config(V2 / "downstream" / f"{name}.yaml")
     assert cfg.run.name == f"v2_{name}" and cfg.checkpoint.keep_last_n == 1
+    assert cfg.data.batch_size * cfg.train.grad_accum_steps == 32  # the paper batch on one A40
     assert cfg.model.from_checkpoint == "runs/v2_moe_sparse/checkpoints/best.pt"
     assert cfg.init_from is not None and cfg.init_from.load == ["all"]
     assert cfg.data.transform.source == "tower" and cfg.model.moe is not None

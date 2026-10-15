@@ -93,7 +93,8 @@ bình gradient của DDP cho đúng gradient của loss toàn cục (test gloo 2
 - Preset `sparse`: chỉ đông lạnh vision tower, nên W_v, resampler, f_enc, W_t và mmBERT đều được train.
 - Hai learning rate: `text_encoder` 3e-5 (đã distill), phần còn lại 1e-4.
 - Text tower lấy từ bước distill (`init_from: {load: [text_encoder]}`).
-- Batch hiệu dụng 128 × accum 4 × 4 GPU = 2048. Mỗi step, mỗi rank chấm 128 ảnh với 512 text.
+- Config được chỉnh cho 1 A40: 256 × accum 2 = 512 mẫu mỗi bước tối ưu. Mỗi step chấm 256 ảnh với 256 text;
+  có nhiều GPU thì text được all-gather (256 × số GPU).
 - Ở downstream, `logit_bias` tự được đông lạnh như `logit_scale`.
 
 ## 6. Bước 3–4: upcycle và sparse
@@ -101,6 +102,9 @@ bình gradient của DDP cho đúng gradient của loss toàn cục (test gloo 2
 Không đổi so với v1. `configs/v2/upcycle.yaml` và `configs/v2/sparse.yaml` include `configs/moe/*` và chỉ đổi đường
 dẫn checkpoint, tên run (`runs/v2_*`, không đụng run v1) và `transform.source`. Loss sigmoid, C-RADIO và mmBERT đi
 theo phần `model` thừa kế từ checkpoint.
+
+Ngân sách sparse được cắt cho 1 A40: 6.000 step × 512 ≈ 3,1 triệu mẫu (khoảng 8 epoch của 378K ảnh). Ngân sách
+của paper (20K step × 2048 ≈ 41 triệu mẫu) sẽ mất khoảng 10 ngày trên một GPU.
 
 ## 7. Head LLM (`model.generation.kind: causal_lm`)
 

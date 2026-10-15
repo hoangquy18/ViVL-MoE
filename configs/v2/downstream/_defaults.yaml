@@ -5,3 +5,6 @@ model: {from_checkpoint: runs/v2_moe_sparse/checkpoints/best.pt}
 init_from: {path: runs/v2_moe_sparse/checkpoints/best.pt, load: [all]}
 data: {transform: {source: tower}}
 checkpoint: {keep_last_n: 1}
+# one A40: 8 x accum 4 = the paper's batch 32 (with 4 GPUs: train.grad_accum_steps=1).
+# OOM: model_overrides.generation.gradient_checkpointing=true, or data.batch_size=4 train.grad_accum_steps=8
+train: {grad_accum_steps: 4}

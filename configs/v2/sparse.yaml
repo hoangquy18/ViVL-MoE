@@ -1,8 +1,12 @@
-# v2 step 4 - sparse MoE pretraining: configs/moe/sparse_train.yaml (20K steps, lr 1e-5, vision frozen,
-# router stabilisers, routing probe) on the v2 upcycled checkpoint. The sigmoid loss and the C-RADIO
-# tower come with the inherited model section.
+# v2 step 4 - sparse MoE pretraining: configs/moe/sparse_train.yaml (lr 1e-5, vision frozen, router
+# stabilisers, routing probe) on the v2 upcycled checkpoint. The sigmoid loss and the C-RADIO tower come with
+# the inherited model section.
+# Budget for one A40: 6000 steps x (256 x accum 2 = 512) = ~3.1M samples (~8 epochs of 378K images, ~13-15 h).
+# The paper's 20K steps x 2048 (41M samples) would take ~10 days on one GPU; with 4 GPUs (2048 per step)
+# set train.max_steps=20000 for that budget. OOM: data.batch_size=128 train.grad_accum_steps=4.
 _include: [../moe/sparse_train.yaml]
 run: {name: v2_moe_sparse}
 model: {from_checkpoint: runs/v2_moe_upcycled/upcycled.pt}
 init_from: {path: runs/v2_moe_upcycled/upcycled.pt, load: [all]}
-data: {transform: {source: tower}}
+data: {transform: {source: tower}, batch_size: 256}
+train: {max_steps: 6000, grad_accum_steps: 2}

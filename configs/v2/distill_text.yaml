@@ -1,7 +1,8 @@
 # v2 step 1 - text distillation (replaces the paper's Stage 1): mmBERT-base (masked mean -> FC1) regresses
 # the frozen SigLIP 2 giant text tower's joint-space embedding. The teacher is multilingual, so corpus
 # captions are distilled caption -> same caption; PhoMT adds English -> Vietnamese pairs (optional:
-# data.train.options.sources.phomt=null). Effective batch 256 x accum 2 x 4 GPUs = 2048.
+# data.train.options.sources.phomt=null). Sized for one A40: 256 x accum 2 = 512 per optimizer step
+# (x the number of GPUs); 2 epochs of ~3.2M pairs take ~4-5 h.
 # Model selection: R@K in the SigLIP 2 joint space on the KTVIC dev holdout (student text vs the teacher's
 # image tower, Appendix A style); the teacher distance on PhoMT dev is logged.
 _include: [../_base/train_defaults.yaml, ../model/v2.yaml, ../data/evals_retrieval.yaml]
@@ -24,7 +25,7 @@ data:
           options: {variant: detokenization, max_train_samples: 2000000, subset_strategy: head}
   evals:
     phomt_dev: {kind: phomt, split: dev, root: dataset/PhoMT, options: {variant: detokenization}}
-  batch_size: 256                    # per rank; x grad_accum_steps 2 x world 4 = 2048
+  batch_size: 256                    # per rank; x grad_accum_steps 2 = 512 on one A40
   eval_batch_size: 256
   transform: {source: tower}         # the dev retrieval uses the teacher's own preprocessing
   tokenizer: {vi_max_len: 64, en_max_len: 64}

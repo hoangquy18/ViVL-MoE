@@ -1,13 +1,15 @@
 # v2 step 2 - dense alignment (replaces the paper's Stages 2 + 3): SigLIP sigmoid loss over the pretraining
 # corpus. C-RADIO stays frozen (preset sparse: only the vision tower frozen, so W_v trains from the start),
-# mmBERT starts from the distilled student (init_from text_encoder). Effective batch 128 x accum 4 x 4 GPUs
-# = 2048; each rank scores its 128 images against all 512 texts of the step (texts are all-gathered).
+# mmBERT starts from the distilled student (init_from text_encoder). Sized for one A40: 256 x accum 2 = 512
+# per optimizer step; each step scores 256 images against 256 texts (more GPUs: texts are all-gathered,
+# 256 x world). One epoch = one caption per image (378K images); 6 epochs take ~10-12 h, dominated by the
+# frozen C-RADIO forward at 512 px. OOM: data.batch_size=128 train.grad_accum_steps=4.
 _include: [../_base/train_defaults.yaml, ../model/v2.yaml, ../data/pretrain_corpus.yaml, ../data/evals_retrieval.yaml]
 run: {name: v2_align, dir: runs}
 task: {name: contrastive}
 init_from: {path: runs/v2_distill_text/checkpoints/best.pt, load: [text_encoder]}
 data:
-  batch_size: 128                    # per rank; x grad_accum_steps 4 x world 4 = 2048
+  batch_size: 256                    # per rank; x grad_accum_steps 2 = 512 on one A40
   eval_batch_size: 128
   one_caption_per_image: true
   transform: {source: tower}
@@ -21,7 +23,7 @@ optim:
 schedule: {kind: cosine, warmup_ratio: 0.05}
 train:
   epochs: 6
-  grad_accum_steps: 4
+  grad_accum_steps: 2
   amp: {enabled: true, dtype: bf16}
   log_every: 50
   early_stopping: {enabled: true, patience: 2}
