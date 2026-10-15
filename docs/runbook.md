@@ -196,6 +196,29 @@ Chỉnh gì: `data.num_workers`, `prefetch_factor`, `persistent_workers` trong `
 (hoặc override); `image_check: exists|decode|none` và `missing_image_policy: skip|error` cho từng source
 (corpus crawl → `skip`; benchmark → `error`).
 
+## 2.5 v2: hai phép kiểm tra chạy trước trên máy GPU
+
+Kiến trúc v2 (C-RADIOv4 + mmBERT + head Qwen3.5, xem `docs/architecture_v2.md`) dựa trên hai điều chỉ kiểm chứng được
+trên máy GPU. Chạy hai lệnh này trước khi train v2; kết quả quyết định mặc định trong config v2.
+
+```bash
+# Môi trường v2 (transformers >= 5.2, timm); v1 vẫn chạy được trong môi trường này
+pip install -r requirements-v2.txt && pip install -e .
+
+# 1) Truy xuất zero-shot tiếng Việt trên KTVIC/UIT-ViIC dev: SigLIP2-g, SigLIP2-So400m, C-RADIOv4 (adaptor siglip2-g).
+#    Cột rsum chọn vision encoder; số của siglip2-g cũng cho biết teacher của bước distill đọc tiếng Việt tốt đến đâu.
+python scripts/probe_vision.py data.evals.ktvic_dev.root=/data/vivlmoe/ktvic_dataset \
+    data.evals.uitviic_dev.root=/data/vivlmoe/uitvic_dataset
+
+# 2) Head LLM: Qwen3.5-0.8B load đủ trọng số, perplexity tiếng Việt hợp lý, mọi tham số có gradient,
+#    sinh theo batch (pad trái) trùng sinh từng mẫu. Mọi dòng phải là PASS.
+python scripts/check_llm_head.py --model Qwen/Qwen3.5-0.8B --llm-class Qwen3_5ForCausalLM
+```
+
+Nếu `check_llm_head.py` báo FAIL ở bước load hoặc perplexity thì dùng tạm `--model Qwen/Qwen3-1.7B --llm-class ""`
+(chạy được cả trên transformers 4.57) và báo lại. Dòng "fast path" chỉ là thông tin: cài `flash-linear-attention` và
+`causal-conv1d` sẽ tăng tốc các lớp attention tuyến tính của Qwen3.5.
+
 ## 3. Phase 1 — dense pretraining (paper §4)
 
 ### 3.0 Chạy cả chuỗi pretrain bằng một lệnh (Phase 1 + Phase 2)
