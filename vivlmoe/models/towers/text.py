@@ -1,9 +1,9 @@
 """Text tower ``f_t`` (paper Sec. 4.2, ``T = f_t(c)``): token-level hidden states, no pooler.
 
 v1 uses XLM-RoBERTa; v2 uses mmBERT (ModernBERT architecture, 8K context). A pretrained model is built
-from its own config (ModernBERT takes no ``add_pooling_layer`` and gets ``reference_compile=False`` so
-DDP / gradient checkpointing never meet a torch.compile'd module); ``text.arch`` only picks the class of
-a random tiny model.
+from its own config (ModernBERT takes no ``add_pooling_layer``; on transformers 4.x its config gets
+``reference_compile=False`` so DDP / gradient checkpointing never meet a torch.compile'd module, an option
+5.x removed); ``text.arch`` only picks the class of a random tiny model.
 """
 
 from __future__ import annotations
@@ -35,8 +35,13 @@ class TextTower(nn.Module):
         self.cfg = cfg
         if cfg.pretrained:
             path = resolve_model_path(cfg.name)
-            if AutoConfig.from_pretrained(path).model_type == "modernbert":
-                self.model = load_fp32(AutoModel, path, reference_compile=False)
+            hf_cfg = AutoConfig.from_pretrained(path)
+            if hf_cfg.model_type == "modernbert":
+                # transformers 4.x torch.compiles ModernBERT's reference path unless told not to; 5.x
+                # dropped the option (and rejects it as a model kwarg), so it is set on the config only
+                if hasattr(hf_cfg, "reference_compile"):
+                    hf_cfg.reference_compile = False
+                self.model = load_fp32(AutoModel, path, config=hf_cfg)
             else:
                 self.model = load_fp32(AutoModel, path, add_pooling_layer=False)
             self.provenance = f"hf:{cfg.name}"

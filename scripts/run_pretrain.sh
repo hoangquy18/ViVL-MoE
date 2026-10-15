@@ -98,6 +98,9 @@ if [ "$PIPELINE" = v2 ]; then
   # Tải model v2 và nạp code remote của C-RADIO một lần, trước torchrun (các rank không ghi cache cùng lúc).
   log "model v2 (cache HF) + code remote C-RADIO"
   "$PYTHON" scripts/fetch_models.py --only v2-pretrain
+  # Mọi model đã nằm trong cache: các rank load offline (không gọi Hub; không chạy luồng auto-conversion
+  # safetensors của transformers cho repo chỉ có pytorch_model.bin như mmBERT)
+  export HF_HUB_OFFLINE=1
   MANIFEST_CFG=configs/v2/align.yaml
 else
   "$PYTHON" scripts/env_check.py

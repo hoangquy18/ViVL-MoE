@@ -92,7 +92,7 @@ def test_modernbert_text_tower_tiny_and_pretrained(tmp_path: Path) -> None:
         tmp_path
     )
     loaded = TextTower(TextCfg(name=str(tmp_path)))  # built from its own config (no pooling kwarg)
-    assert loaded.model.config.reference_compile is False
+    assert getattr(loaded.model.config, "reference_compile", False) is False  # removed in 5.x
     assert {p.dtype for p in loaded.parameters()} == {torch.float32}
 
 
