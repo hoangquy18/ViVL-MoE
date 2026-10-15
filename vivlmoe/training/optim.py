@@ -81,7 +81,7 @@ def params_under(model: nn.Module, path: str) -> list[tuple[str, nn.Parameter]]:
 def apply_freezing(model: nn.Module, paths: Sequence[str]) -> list[str]:
     """Set ``requires_grad=False`` under every path; returns the frozen parameter names.
 
-    A module exposing ``set_trainable`` (``VisionTower``) is frozen through it so its own policy
+    A module exposing ``set_trainable`` (a vision tower) is frozen through it so its own policy
     (eval mode, frozen dtype) is applied consistently with :mod:`vivlmoe.models.freezing`.
     """
     frozen: list[str] = []

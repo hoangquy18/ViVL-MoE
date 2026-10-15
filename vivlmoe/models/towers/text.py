@@ -1,4 +1,10 @@
-"""XLM-RoBERTa text tower ``f_t`` (paper Sec. 4.2, ``T = f_t(c)``): token-level hidden states, no pooler."""
+"""Text tower ``f_t`` (paper Sec. 4.2, ``T = f_t(c)``): token-level hidden states, no pooler.
+
+v1 uses XLM-RoBERTa; v2 uses mmBERT (ModernBERT architecture, 8K context). A pretrained model is built
+from its own config (ModernBERT takes no ``add_pooling_layer`` and gets ``reference_compile=False`` so
+DDP / gradient checkpointing never meet a torch.compile'd module); ``text.arch`` only picks the class of
+a random tiny model.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +12,14 @@ import logging
 
 import torch
 from torch import nn
-from transformers import AutoModel, XLMRobertaConfig, XLMRobertaModel
+from transformers import (
+    AutoConfig,
+    AutoModel,
+    ModernBertConfig,
+    ModernBertModel,
+    XLMRobertaConfig,
+    XLMRobertaModel,
+)
 
 from vivlmoe.config.schema import TextCfg
 from vivlmoe.utils.hf import load_fp32, resolve_model_path
@@ -22,14 +35,21 @@ class TextTower(nn.Module):
         self.cfg = cfg
         if cfg.pretrained:
             path = resolve_model_path(cfg.name)
-            self.model = load_fp32(AutoModel, path, add_pooling_layer=False)
+            if AutoConfig.from_pretrained(path).model_type == "modernbert":
+                self.model = load_fp32(AutoModel, path, reference_compile=False)
+            else:
+                self.model = load_fp32(AutoModel, path, add_pooling_layer=False)
             self.provenance = f"hf:{cfg.name}"
         else:
             if cfg.tiny_config is None:
                 raise ValueError("model.text.tiny_config is required when pretrained=false")
-            self.model = XLMRobertaModel(
-                XLMRobertaConfig(**cfg.tiny_config), add_pooling_layer=False
-            )
+            if cfg.arch == "modernbert":
+                tiny = {"reference_compile": False, **cfg.tiny_config}
+                self.model = ModernBertModel(ModernBertConfig(**tiny))
+            else:
+                self.model = XLMRobertaModel(
+                    XLMRobertaConfig(**cfg.tiny_config), add_pooling_layer=False
+                )
             self.provenance = "random"
         self.hidden_size: int = int(self.model.config.hidden_size)
         if cfg.gradient_checkpointing:

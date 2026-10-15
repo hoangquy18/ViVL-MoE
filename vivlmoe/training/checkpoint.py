@@ -67,6 +67,8 @@ def find_tower_paths(model: nn.Module) -> dict[str, str]:
     """
     found: dict[str, str] = {}
     for path, _module in model.named_modules():
+        if any(path.startswith(p + ".") for p in found.values()):
+            continue  # inside a tower (remote code may reuse the names)
         attr = path.rsplit(".", 1)[-1]
         if attr in TOWER_ATTRS and attr not in found:
             found[attr] = path
@@ -96,7 +98,9 @@ class ProvenanceTracker:
         prov: dict[str, str] = {}
         for attr, tcfg in (("vision_encoder", model_cfg.vision), ("text_encoder", model_cfg.text)):
             if attr in paths:
-                prov[paths[attr]] = f"hf:{tcfg.name}" if tcfg.pretrained else "trained"
+                revision = getattr(tcfg, "revision", None)  # pinned remote code (C-RADIO)
+                hf = f"hf:{tcfg.name}" + (f"@{revision}" if revision else "")
+                prov[paths[attr]] = hf if tcfg.pretrained else "trained"
         return cls(prov)
 
     def inherit(self, loaded: dict[str, str]) -> None:

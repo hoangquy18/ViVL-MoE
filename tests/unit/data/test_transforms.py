@@ -101,3 +101,39 @@ def test_parity_with_clip_image_processor() -> None:
     assert_matches_hf_processor("openai/clip-vit-base-patch32", images, atol=1e-3)
     spec = spec_from_clip_processor("openai/clip-vit-base-patch32")
     assert (spec.size, spec.crop_size) == (224, 224)
+
+
+# ---------------------------------------------------------------------------------- v2 towers
+def test_tower_spec_for_siglip_is_square_bilinear_half_normalised() -> None:
+    sig = VisionCfg(kind="siglip", pretrained=False, tiny_config={"image_size": 32}, image_size=48)
+    spec = build_transform_spec(sig, TransformCfg(source="tower"))
+    assert (spec.size, spec.crop_size, spec.resize_mode, spec.resample) == (
+        48,
+        48,
+        "square",
+        "bilinear",
+    )
+    assert spec.mean == spec.std == (0.5, 0.5, 0.5)
+
+
+def test_tower_spec_for_radio_keeps_pixels_in_unit_range() -> None:
+    rad = VisionCfg(kind="radio", pretrained=False, tiny_config={"preferred_resolution": 32})
+    spec = build_transform_spec(rad, TransformCfg(source="tower"))
+    assert (spec.size, spec.mean, spec.std) == (32, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
+    x = build_transform(spec)(Image.new("RGB", (50, 30), (255, 128, 0)))
+    assert x.shape == (3, 32, 32) and 0.0 <= float(x.min()) and float(x.max()) <= 1.0
+    # pretrained C-RADIO: preferred resolution without running its remote code
+    pre = VisionCfg(kind="radio", name="nvidia/C-RADIOv4-SO400M")
+    assert build_transform_spec(pre, TransformCfg(source="tower")).size == 512
+
+
+def test_clip_processor_source_is_rejected_for_v2_towers() -> None:
+    sig = VisionCfg(kind="siglip", pretrained=False, tiny_config={"image_size": 32})
+    with pytest.raises(ValueError, match="source: tower"):
+        build_transform_spec(sig, TransformCfg())
+
+
+def test_spec_dict_from_an_older_checkpoint_loads() -> None:
+    d = ImageTransformSpec(size=32, crop_size=32).to_dict()
+    d.pop("resize_mode")
+    assert ImageTransformSpec.from_dict(d).resize_mode == "shortest_edge_crop"

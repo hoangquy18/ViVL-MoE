@@ -35,7 +35,11 @@ class VisionCfg:
         "apple/DFN5B-CLIP-ViT-H-14-378"  # HF id (resolved through configs/_base/model_paths.yaml)
     )
     pretrained: bool = True  # False -> random init from `tiny_config` (tests only)
-    tiny_config: dict[str, Any] | None = None  # CLIPVisionConfig overrides when pretrained=False
+    # random tiny model kwargs when pretrained=False: CLIPVisionConfig / SiglipVisionConfig / RadioStub
+    tiny_config: dict[str, Any] | None = None
+    kind: Literal["clip", "siglip", "radio"] = "clip"  # v2: SigLIP 2 or C-RADIOv4 (frozen-only)
+    image_size: int | None = None  # input resolution; None -> the checkpoint's (C-RADIOv4: 512)
+    revision: str | None = None  # pin a hub revision (C-RADIOv4 runs remote code)
     apply_post_layernorm: bool = False  # paper uses V = f_v(I) (raw last hidden state)
     frozen_dtype: Literal["auto", "fp32", "bf16"] = (
         "auto"  # auto: bf16 when frozen on CUDA, else fp32
@@ -47,7 +51,9 @@ class VisionCfg:
 class TextCfg:
     name: str = "FacebookAI/xlm-roberta-large"
     pretrained: bool = True
-    tiny_config: dict[str, Any] | None = None  # XLMRobertaConfig overrides when pretrained=False
+    tiny_config: dict[str, Any] | None = None  # random tiny model config when pretrained=False
+    # class of the random tiny model (a pretrained model is built from its own config)
+    arch: Literal["xlm-roberta", "modernbert"] = "xlm-roberta"
     gradient_checkpointing: bool = False
 
 
@@ -223,9 +229,9 @@ class TokenizerCfg:
 
 @dataclass
 class TransformCfg:
-    source: Literal["clip_processor", "manual"] = (
-        "clip_processor"  # derive size/mean/std from the vision model
-    )
+    # clip_processor: read the CLIP tower's processor; tower: per vision.kind (SigLIP / C-RADIO);
+    # manual: explicit size with CLIP statistics
+    source: Literal["clip_processor", "tower", "manual"] = "clip_processor"
     size: int | None = None  # manual only
     crop_size: int | None = None
     augment: Literal["none", "random_resized_crop"] = "none"
@@ -537,6 +543,21 @@ class RunConfig:
         if t.amp.enabled and t.amp.dtype == "fp16" and self.model.vision.frozen_dtype == "bf16":
             raise ConfigError(
                 "model.vision.frozen_dtype=bf16 cannot be combined with train.amp.dtype=fp16"
+            )
+        v = self.model.vision
+        if v.kind != "clip" and v.apply_post_layernorm:
+            raise ConfigError(
+                "model.vision.apply_post_layernorm only applies to CLIP towers (SigLIP's last hidden "
+                "state is already post-LN; C-RADIO returns normalised features)"
+            )
+        if v.kind == "radio" and v.gradient_checkpointing:
+            raise ConfigError(
+                "model.vision: C-RADIO towers are frozen-only (no gradient checkpointing)"
+            )
+        if v.kind != "clip" and self.data.transform.source == "clip_processor":
+            raise ConfigError(
+                f"data.transform.source=clip_processor cannot describe a {v.kind} vision tower "
+                "(it would resize and centre-crop to the wrong size): use source: tower"
             )
         if self.data.batch_size < 1 or self.data.eval_batch_size < 1:
             raise ConfigError("data.batch_size / data.eval_batch_size must be >= 1")

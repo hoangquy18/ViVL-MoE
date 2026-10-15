@@ -4,11 +4,24 @@ from __future__ import annotations
 
 from torch import nn
 
+from vivlmoe.config.schema import VisionCfg
 from vivlmoe.models.towers.clip_teacher import CLIPImageTeacher, CLIPTextTeacher, teacher_output_dim
 from vivlmoe.models.towers.text import TextTower
-from vivlmoe.models.towers.vision import VisionTower
+from vivlmoe.models.towers.vision import BaseVisionTower, VisionTower
+from vivlmoe.models.towers.vision_radio import RadioVisionTower
+from vivlmoe.models.towers.vision_siglip import SiglipVisionTower
 
 TOWER_ATTRS = ("vision_encoder", "text_encoder")
+_VISION_TOWERS: dict[str, type[BaseVisionTower]] = {
+    "clip": VisionTower,
+    "siglip": SiglipVisionTower,
+    "radio": RadioVisionTower,
+}
+
+
+def build_vision_tower(cfg: VisionCfg) -> BaseVisionTower:
+    """The vision tower class for ``cfg.kind`` (v1: CLIP; v2: SigLIP 2 or C-RADIO)."""
+    return _VISION_TOWERS[cfg.kind](cfg)
 
 
 def find_tower_paths(model: nn.Module) -> dict[str, str]:
@@ -20,11 +33,14 @@ def find_tower_paths(model: nn.Module) -> dict[str, str]:
     """
     found: dict[str, str] = {}
     for path, module in model.named_modules():
+        if any(path.startswith(p + ".") for p in found.values()):
+            continue  # inside a tower (remote code may reuse the names)
         attr = path.rsplit(".", 1)[-1]
         if attr in TOWER_ATTRS and attr not in found:
-            if not isinstance(module, VisionTower | TextTower):
+            if not isinstance(module, BaseVisionTower | TextTower):
                 raise TypeError(
-                    f"{path!r} is named like a tower but is {type(module).__name__}, not VisionTower/TextTower"
+                    f"{path!r} is named like a tower but is {type(module).__name__}, not a "
+                    "vision tower / TextTower"
                 )
             found[attr] = path
     return found
@@ -32,10 +48,14 @@ def find_tower_paths(model: nn.Module) -> dict[str, str]:
 
 __all__ = [
     "TOWER_ATTRS",
+    "BaseVisionTower",
     "CLIPImageTeacher",
     "CLIPTextTeacher",
+    "RadioVisionTower",
+    "SiglipVisionTower",
     "TextTower",
     "VisionTower",
+    "build_vision_tower",
     "find_tower_paths",
     "teacher_output_dim",
 ]

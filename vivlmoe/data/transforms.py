@@ -1,14 +1,16 @@
-"""Image preprocessing derived from the vision tower's ``CLIPImageProcessor``.
+"""Image preprocessing matched to the vision tower, stored in every checkpoint (``transform_spec``).
 
-The legacy code normalised with ImageNet statistics while the tower expected CLIP statistics.
-Here the spec is read from the *constructed* processor (``.size`` / ``.crop_size`` dicts, mean, std,
-resample) so it cannot drift, and it is stored in every checkpoint (``transform_spec``).
+* CLIP (v1): read from the *constructed* ``CLIPImageProcessor`` (``.size`` / ``.crop_size`` dicts,
+  mean, std, resample) so it cannot drift - the legacy code normalised with ImageNet statistics while the
+  tower expected CLIP statistics. Shortest-edge resize, then centre crop.
+* ``source: tower`` for the v2 towers: SigLIP 2 -> square bilinear resize, mean/std 0.5; C-RADIO ->
+  square bicubic resize, pixels left in [0, 1] (the model normalises internally). No crop.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 
 import torch
@@ -33,6 +35,11 @@ _TV_RESAMPLE = {
     "hamming": InterpolationMode.HAMMING,
 }
 Augment = Literal["none", "random_resized_crop"]
+ResizeMode = Literal["shortest_edge_crop", "square"]
+SIGLIP_MEAN = SIGLIP_STD = (0.5, 0.5, 0.5)
+RADIO_DEFAULT_SIZE = (
+    512  # C-RADIOv4 preferred resolution (reading its config would run remote code)
+)
 
 
 @dataclass(frozen=True)
@@ -43,6 +50,7 @@ class ImageTransformSpec:
     std: tuple[float, float, float] = CLIP_STD
     resample: str = "bicubic"
     augment: Augment = "none"
+    resize_mode: ResizeMode = "shortest_edge_crop"  # last: older checkpoints / positional use
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -58,6 +66,7 @@ class ImageTransformSpec:
             std=tuple(float(x) for x in d["std"]),  # type: ignore[arg-type]
             resample=str(d.get("resample", "bicubic")),
             augment=d.get("augment", "none"),
+            resize_mode=d.get("resize_mode", "shortest_edge_crop"),
         )
 
 
@@ -113,9 +122,57 @@ def spec_from_clip_processor(
     return ImageTransformSpec(size=size, crop_size=crop, mean=mean, std=std, resample=resample)  # type: ignore[arg-type]
 
 
+def _native_size(vision: VisionCfg) -> int:
+    """Input resolution when ``vision.image_size`` is unset."""
+    if not vision.pretrained:
+        tiny = vision.tiny_config or {}
+        return int(tiny.get("image_size") or tiny.get("preferred_resolution") or 224)
+    if vision.kind == "radio":
+        return RADIO_DEFAULT_SIZE
+    from transformers import AutoConfig
+
+    cfg = AutoConfig.from_pretrained(resolve_model_path(vision.name))
+    return int(getattr(cfg, "vision_config", cfg).image_size)
+
+
+def square_spec(vision: VisionCfg) -> ImageTransformSpec:
+    """``source: tower`` spec of a SigLIP / C-RADIO tower (square resize, no crop)."""
+    size = int(vision.image_size or _native_size(vision))
+    if vision.kind == "siglip":
+        return ImageTransformSpec(
+            size=size,
+            crop_size=size,
+            mean=SIGLIP_MEAN,
+            std=SIGLIP_STD,
+            resample="bilinear",
+            resize_mode="square",
+        )
+    if vision.kind == "radio":
+        return ImageTransformSpec(
+            size=size,
+            crop_size=size,
+            mean=(0.0, 0.0, 0.0),
+            std=(1.0, 1.0, 1.0),
+            resample="bicubic",
+            resize_mode="square",
+        )
+    raise ValueError(f"no square transform for vision.kind={vision.kind!r}")
+
+
 def build_transform_spec(vision: VisionCfg, transform: TransformCfg) -> ImageTransformSpec:
-    """Spec for a run: ``clip_processor`` (from the tower) or ``manual`` (explicit size)."""
-    if transform.source == "manual":
+    """Spec for a run: ``clip_processor`` / ``tower`` (from the tower) or ``manual`` (explicit size)."""
+    if transform.source == "clip_processor" and vision.kind != "clip":
+        raise ValueError(
+            f"data.transform.source=clip_processor cannot describe a {vision.kind} vision tower "
+            "(it would resize and centre-crop to the wrong size): use source: tower"
+        )
+    if transform.source != "manual" and (
+        transform.size is not None or transform.crop_size is not None
+    ):
+        raise ValueError("data.transform.size/crop_size are only allowed with source=manual")
+    if transform.source == "tower" and vision.kind != "clip":
+        spec = square_spec(vision)
+    elif transform.source == "manual":
         if transform.size is None:
             raise ValueError("data.transform.size is required when data.transform.source=manual")
         crop = transform.crop_size if transform.crop_size is not None else transform.size
@@ -129,15 +186,14 @@ def build_transform_spec(vision: VisionCfg, transform: TransformCfg) -> ImageTra
         spec = ImageTransformSpec(size=image_size, crop_size=image_size)
     else:
         spec = spec_from_clip_processor(vision.name)
-        if transform.size is not None or transform.crop_size is not None:
-            raise ValueError("data.transform.size/crop_size are only allowed with source=manual")
-    return ImageTransformSpec(**{**asdict(spec), "augment": transform.augment})
+    return replace(spec, augment=transform.augment)
 
 
 def build_transform(spec: ImageTransformSpec, train: bool = False) -> T.Compose:
-    """Resize(shortest edge, antialias) -> CenterCrop -> ToTensor -> Normalize (== CLIPImageProcessor).
+    """Resize(shortest edge, antialias) -> CenterCrop -> ToTensor -> Normalize (== CLIPImageProcessor);
+    ``resize_mode='square'`` resizes straight to ``size x size`` (SigLIP / C-RADIO processors).
 
-    With ``augment='random_resized_crop'`` and ``train=True`` the first two steps become a
+    With ``augment='random_resized_crop'`` and ``train=True`` the resize step becomes a
     ``RandomResizedCrop`` to ``crop_size``.
     """
     interp = _TV_RESAMPLE[spec.resample]
@@ -148,6 +204,8 @@ def build_transform(spec: ImageTransformSpec, train: bool = False) -> T.Compose:
                 spec.crop_size, scale=(0.5, 1.0), interpolation=interp, antialias=True
             )
         ]
+    elif spec.resize_mode == "square":
+        ops = [T.Resize((spec.size, spec.size), interpolation=interp, antialias=True)]
     else:
         ops = [
             T.Resize(spec.size, interpolation=interp, antialias=True),
@@ -180,9 +238,12 @@ def assert_matches_hf_processor(
 __all__ = [
     "CLIP_MEAN",
     "CLIP_STD",
+    "SIGLIP_MEAN",
+    "SIGLIP_STD",
     "ImageTransformSpec",
     "assert_matches_hf_processor",
     "build_transform",
     "build_transform_spec",
     "spec_from_clip_processor",
+    "square_spec",
 ]

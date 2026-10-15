@@ -29,8 +29,8 @@ from vivlmoe.models.projections import (
     init_module_,
 )
 from vivlmoe.models.resampler import PerceiverResampler
+from vivlmoe.models.towers import build_vision_tower
 from vivlmoe.models.towers.text import TextTower
-from vivlmoe.models.towers.vision import VisionTower
 
 log = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class ViVLBackbone(nn.Module):
         super().__init__()
         self.cfg = cfg
         dim = cfg.encoder.dim
-        self.vision_encoder = VisionTower(cfg.vision)
+        self.vision_encoder = build_vision_tower(cfg.vision)
         self.vision_proj = VisionProjection(self.vision_encoder.hidden_size, dim)
         self.resampler = PerceiverResampler(dim, cfg.resampler)
         self.text_encoder = TextTower(cfg.text)

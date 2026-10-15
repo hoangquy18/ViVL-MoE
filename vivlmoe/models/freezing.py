@@ -8,7 +8,7 @@ from dataclasses import fields, is_dataclass
 import torch
 from torch import nn
 
-from vivlmoe.models.towers.vision import VisionTower
+from vivlmoe.models.towers.vision import BaseVisionTower
 
 log = logging.getLogger(__name__)
 
@@ -53,14 +53,14 @@ def freeze_paths_for_preset(model: nn.Module, preset: str) -> list[str]:
 
 
 def apply_freeze(model: nn.Module, paths: list[str]) -> list[str]:
-    """Set ``requires_grad=False`` under every path; ``VisionTower`` goes through ``set_trainable``.
+    """Set ``requires_grad=False`` under every path; vision towers go through ``set_trainable``.
 
     Returns the names of the frozen parameters.
     """
     frozen: list[str] = []
     for path in paths:
         target = _resolve_path(model, path)
-        if isinstance(target, VisionTower):
+        if isinstance(target, BaseVisionTower):
             target.set_trainable(False)
             frozen.extend(f"{path}.{n}" for n, _ in target.named_parameters())
         elif isinstance(target, nn.Parameter):
@@ -77,7 +77,7 @@ def apply_freeze(model: nn.Module, paths: list[str]) -> list[str]:
 def apply_frozen_dtype_policy(
     model: nn.Module, amp_dtype: torch.dtype | None = None
 ) -> dict[str, torch.dtype]:
-    """Apply :meth:`VisionTower.apply_dtype_policy` to every vision tower in ``model``.
+    """Apply :meth:`BaseVisionTower.apply_dtype_policy` to every vision tower in ``model``.
 
     Call once after ``model.to(device)`` and before DDP wrapping / any checkpoint fingerprint: the tower
     never casts inside ``forward``, so this is the single point where a frozen ViT becomes bf16 (CUDA).
@@ -85,7 +85,7 @@ def apply_frozen_dtype_policy(
     """
     result: dict[str, torch.dtype] = {}
     for path, module in model.named_modules():
-        if isinstance(module, VisionTower):
+        if isinstance(module, BaseVisionTower):
             result[path] = module.apply_dtype_policy(amp_dtype)
     log.info("frozen-dtype policy applied: %s", {k: str(v) for k, v in result.items()})
     return result

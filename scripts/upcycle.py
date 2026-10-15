@@ -87,7 +87,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def _synthetic_batch(model, batch_size: int, image_size: int | None, seed: int = 0) -> dict:
     """Random pixels / token ids: the equivalence identity holds for any input."""
     g = torch.Generator().manual_seed(seed)
-    size = image_size or int(model.vision_encoder.model.config.image_size)
+    size = image_size or int(model.vision_encoder.image_size)
     vocab = int(model.text_encoder.model.config.vocab_size)
     length = 12
     ids = torch.randint(3, vocab, (batch_size, length), generator=g)

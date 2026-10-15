@@ -1,0 +1,17 @@
+# Tiny random v2 model for hermetic CPU tests: C-RADIO stub vision tower (vivlmoe/models/towers/radio_stub.py),
+# ModernBERT text tower (mmBERT's architecture), tiny resampler / encoder. Runs need data.transform.source: tower.
+# The distillation teacher (SigLIP) and the LLM head are added by the milestones that use them.
+_include: [paper.yaml]
+model:
+  vision:
+    kind: radio
+    pretrained: false
+    image_size: 32
+    tiny_config: {embed_dim: 32, patch_size: 16, preferred_resolution: 32}
+  text:
+    arch: modernbert
+    pretrained: false
+    # special ids follow the tiny "roberta" tokenizer: <s>=0 (cls/bos), <pad>=1, </s>=2 (sep/eos)
+    tiny_config: {vocab_size: 1000, hidden_size: 32, intermediate_size: 64, num_hidden_layers: 2, num_attention_heads: 4, max_position_embeddings: 130, pad_token_id: 1, bos_token_id: 0, eos_token_id: 2, cls_token_id: 0, sep_token_id: 2, global_attn_every_n_layers: 1}
+  resampler: {num_latents: 8, depth: 1, heads: 2, dim_head: 16, ff_mult: 2}
+  encoder: {dim: 32, num_layers: 2, heads: 4, ffn_dim: 64}
