@@ -282,6 +282,8 @@ Luôn chạy `--dry-run` trước mỗi stage trên máy GPU để xem memory.
 ### 3.2 Chuỗi pretrain v2 (distill → align → upcycle → sparse)
 
 Kiến trúc ở `docs/architecture_v2.md`. Chạy trong môi trường `requirements-v2.txt`, sau hai phép kiểm tra ở mục 2.5.
+**Cách nhanh nhất:** các script đánh số trong `scripts/gpu/` (cài môi trường → kéo dữ liệu → tải model → kiểm tra →
+chạy thử → pretrain → downstream), xem `scripts/gpu/README.md`.
 Mỗi run v2 có tên riêng (`runs/v2_*`), nên không đụng run v1.
 
 Config v2 được chỉnh cho **1 A40 (48 GB)**. `run_pretrain.sh` tự đếm GPU, và batch hiệu dụng bằng

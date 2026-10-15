@@ -15,3 +15,8 @@ __pycache__/
 *.safetensors
 *.log
 .DS_Store
+# scripts/gpu: Python env, logs, preflight runs (machine-local)
+/.venv/
+/.conda311/
+/logs/
+/runs_preflight/

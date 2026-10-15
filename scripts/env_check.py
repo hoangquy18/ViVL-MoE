@@ -110,10 +110,14 @@ def main() -> int:
     mapping = local_model_map()
     if not mapping:
         print(f"  none registered ({model_paths_file()} absent)")
-    for hf_id, path in mapping.items():
+    for hf_id, path in mapping.items():  # a stale entry only fails a config that uses that model
         exists = os.path.isdir(path)
-        print(f"  {'ok  ' if exists else 'MISS'} {hf_id} -> {path}")
-        ok = ok and exists
+        hint = (
+            ""
+            if exists
+            else "  (missing: scripts/fetch_models.py recreates it if a config needs it)"
+        )
+        print(f"  {'ok  ' if exists else 'WARN'} {hf_id} -> {path}{hint}")
 
     print("== HF cache (small models) ==")
     try:
