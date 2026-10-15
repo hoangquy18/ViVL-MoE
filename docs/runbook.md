@@ -301,6 +301,11 @@ Hết bộ nhớ (OOM) khi align/sparse: `data.batch_size=128 train.grad_accum_s
 `model_overrides.generation.gradient_checkpointing=true`, hoặc `data.batch_size=4 train.grad_accum_steps=8`.
 Chạy `PREFLIGHT=1` trước là bắt được lỗi này ngay ở step đầu.
 
+Nhiều GPU (DDP): sigmoid loss all-gather text giữa các GPU, nên số cặp mỗi step = `batch_size × số GPU`
+(accum không thêm cặp). `scripts/gpu/4_preflight.sh` và `5_pretrain.sh` tự chỉnh batch mỗi GPU để giữ 256 cặp
+mỗi step và 512 mẫu mỗi bước tối ưu: 1 A40 → 256 × accum 2; **2× RTX 3090 (24 GB) → 128 × 2 GPU × accum 2**,
+thời gian tương đương 1 A40. Bước sparse bật gradient checkpointing cho mmBERT để vừa card 24 GB.
+
 ```bash
 # Tải model v2 (C-RADIOv4-SO400M, mmBERT-base, SigLIP 2 g + So400m, Qwen3.5-0.8B) vào cache HF và nạp sẵn code
 # remote của C-RADIO. Lần đầu: ghim commit được in ra vào model.vision.revision của configs/model/v2.yaml.

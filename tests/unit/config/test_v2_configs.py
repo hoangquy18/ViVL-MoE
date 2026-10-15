@@ -88,6 +88,7 @@ def test_upcycle_and_sparse_configs(tmp_path: Path) -> None:
     assert sp.run.name == "v2_moe_sparse" and sp.optim.lr == 1.0e-5 and sp.train.max_steps == 6000
     assert sp.data.transform.source == "tower" and sp.optim.freeze_preset == "sparse"
     assert (sp.data.batch_size, sp.train.grad_accum_steps) == (256, 2)
+    assert sp.model.text.gradient_checkpointing and sp.model.moe is not None  # override + inherited
 
 
 @pytest.mark.parametrize("name", [*GENERATION, "vimacsa"])

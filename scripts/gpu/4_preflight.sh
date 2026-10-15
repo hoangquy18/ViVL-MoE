@@ -4,14 +4,16 @@
 #
 #   bash scripts/gpu/4_preflight.sh            # bước đã xong ở lần trước được bỏ qua
 #   bash scripts/gpu/4_preflight.sh --fresh    # xoá runs_preflight/ (chỉ là kết quả chạy thử) rồi chạy lại
-# OOM ở align/sparse: thêm EXTRA="data.batch_size=128 train.grad_accum_steps=4" (áp cho mọi bước) hoặc sửa
-# configs/v2/{align,sparse}.yaml rồi chạy lại với --fresh.
+# Batch mỗi GPU tự chỉnh theo số GPU và bộ nhớ (pretrain_overrides trong env.sh). Vẫn OOM: đặt
+# GPU_MEM_GB=24 (ép tối đa 128 mẫu mỗi GPU) hoặc NGPU/GPU_MEM_GB tuỳ ý, rồi chạy lại với --fresh.
 source "$(dirname "$0")/env.sh"
 activate
 
 if [ "${1:-}" = "--fresh" ]; then
   run rm -rf runs_preflight
 fi
-run env RUN_DIR=runs_preflight PREFLIGHT=1 PIPELINE=v2 bash scripts/run_pretrain.sh \
+batch=$(pretrain_overrides)
+log "batch theo phần cứng: ${batch:-theo config}"
+run env RUN_DIR=runs_preflight PREFLIGHT=1 PIPELINE=v2 EXTRA="$batch ${EXTRA:-}" bash scripts/run_pretrain.sh \
   2>&1 | tee -a "$LOG_DIR/4_preflight.log"
 log "xong bước 4 (log: $LOG_DIR/4_preflight.log). Tiếp theo, trong tmux: bash scripts/gpu/5_pretrain.sh"

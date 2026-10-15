@@ -31,6 +31,9 @@ tmux new -s ds 'bash scripts/gpu/6_downstream.sh'
 ```
 
 Ghi chú:
+- Pretrain dùng mọi GPU của máy (DDP). Batch mỗi GPU tự chỉnh theo số GPU và bộ nhớ, giữ 256 cặp mỗi step cho
+  sigmoid loss và 512 mẫu mỗi bước tối ưu: 1 A40 → 256 × accum 2; 2× RTX 3090 → 128 × 2 GPU × accum 2.
+  Downstream (bước 6) với head Qwen3.5 cần card ≥ 40 GB; trên card 24 GB thì chưa vừa.
 - Bước 5 và 6 chạy lâu: luôn chạy trong tmux (`tmux attach -t v2` để xem lại). Bị ngắt thì chạy lại đúng lệnh:
   bước đã xong được bỏ qua, bước dở dang chạy tiếp từ `last.pt`.
 - Hết bộ nhớ (OOM) ở align/sparse: sửa `data.batch_size: 128` và `train.grad_accum_steps: 4` trong

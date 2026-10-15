@@ -34,6 +34,26 @@ die() { echo "LỖI: $*" >&2; exit 1; }
 need() { [ -e "$1" ] || die "thiếu $1 ($2)"; }
 run() { echo "+ $*"; if [ "${DRY_RUN:-0}" != 1 ]; then "$@"; fi; }
 
+# Batch pretrain theo phần cứng, giữ đúng công thức của config: 256 cặp mỗi step cho sigmoid loss (text được
+# all-gather giữa các GPU, nên số cặp = batch mỗi GPU x số GPU) và 512 mẫu mỗi bước tối ưu (x accum).
+# Card < 40 GB nhận tối đa 128 mẫu (256 không vừa 24 GB). Ví dụ: 1 A40 -> 256 x accum 2; 2x 3090 -> 128 x 2 GPU
+# x accum 2; 1x 3090 -> 128 x accum 4 (còn 128 cặp mỗi step). NGPU / GPU_MEM_GB ghi đè phần tự dò.
+pretrain_overrides() {
+  local ngpu=${NGPU:-} mem=${GPU_MEM_GB:-}
+  if [ -z "$ngpu" ] || [ -z "$mem" ]; then
+    command -v nvidia-smi >/dev/null || { echo ""; return 0; }
+    ngpu=${NPROC:-$(nvidia-smi -L | grep -c '^GPU')}
+    mem=$(( $(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | sort -n | head -1) / 1024 ))
+  fi
+  local cap=256 per accum
+  [ "$mem" -ge 40 ] || cap=128
+  per=$((256 / ngpu))
+  [ "$per" -le "$cap" ] || per=$cap
+  [ "$per" -ge 1 ] || per=1
+  accum=$(( (512 + per * ngpu - 1) / (per * ngpu) ))
+  echo "data.batch_size=$per train.grad_accum_steps=$accum"
+}
+
 activate() {
   if [ "${DRY_RUN:-0}" = 1 ] && [ ! -f "$VENV/bin/activate" ]; then return 0; fi
   [ -f "$VENV/bin/activate" ] || die "chưa có môi trường $VENV: chạy bash scripts/gpu/0_setup.sh"

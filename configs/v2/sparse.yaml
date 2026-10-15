@@ -10,3 +10,5 @@ model: {from_checkpoint: runs/v2_moe_upcycled/upcycled.pt}
 init_from: {path: runs/v2_moe_upcycled/upcycled.pt, load: [all]}
 data: {transform: {source: tower}, batch_size: 256}
 train: {max_steps: 6000, grad_accum_steps: 2}
+# mmBERT recomputes its activations in the backward pass: ~1% more compute, and the MoE step fits 24 GB cards
+model_overrides: {text: {gradient_checkpointing: true}}

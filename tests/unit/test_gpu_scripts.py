@@ -44,3 +44,23 @@ def test_downstream_runs_only_datasets_with_data(tmp_path: Path) -> None:
     for key in ("data.train.root", "data.evals.dev.root", "data.evals.test.root"):
         assert f"{key}={tmp_path / 'ktvic'}" in cmd
     assert "bỏ qua uitviic_caption" in out and "bỏ qua openvivqa" in out
+
+
+@pytest.mark.parametrize(
+    ("ngpu", "mem", "expected"),
+    [
+        (1, 44, "data.batch_size=256 train.grad_accum_steps=2"),  # 1x A40: the config itself
+        (2, 24, "data.batch_size=128 train.grad_accum_steps=2"),  # 2x 3090: 256 pairs, 512 per step
+        (1, 24, "data.batch_size=128 train.grad_accum_steps=4"),  # 1x 3090: 128 pairs, 512 per step
+        (4, 44, "data.batch_size=64 train.grad_accum_steps=2"),  # 4x A40
+    ],
+)
+def test_pretrain_batch_follows_the_hardware(
+    ngpu: int, mem: int, expected: str, tmp_path: Path
+) -> None:
+    script = f'source "{REPO}/scripts/gpu/env.sh" && pretrain_overrides'
+    env = {**os.environ, "NGPU": str(ngpu), "GPU_MEM_GB": str(mem), "LOG_DIR": str(tmp_path)}
+    out = subprocess.run(
+        ["bash", "-c", script], env=env, capture_output=True, text=True, check=True
+    )
+    assert out.stdout.strip() == expected
