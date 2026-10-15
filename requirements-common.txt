@@ -1,0 +1,13 @@
+# Dependencies shared by the v1 and v2 environments (torch / transformers are pinned per environment).
+safetensors>=0.4
+pyyaml>=6,<7
+numpy>=1.26,<2
+pillow>=10
+tqdm>=4.66
+tensorboard>=2.15
+rouge-score>=0.1.2
+pycocoevalcap>=1.2
+sentencepiece>=0.2
+protobuf>=4
+pandas>=2
+scikit-learn>=1.3

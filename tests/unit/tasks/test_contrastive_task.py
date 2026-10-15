@@ -199,10 +199,11 @@ def test_real_stage2_and_stage3_configs_load() -> None:
     s2 = load_config(CONFIGS / "pretrain" / "stage2_contrastive.yaml")
     assert s2.task.name == "contrastive" and s2.optim.freeze_preset == "stage2"
     assert s2.init_from is not None and s2.init_from.load == ["text_encoder"]
-    assert s2.data.train is not None and s2.data.train.kind == "mixture"
-    kinds = [s["kind"] for s in s2.data.train.options["sources"]]
-    assert kinds == ["json_dict", "jsonl", "hf_image_caption"]
-    assert all(s["missing_image_policy"] == "skip" for s in s2.data.train.options["sources"])
+    # the decontaminated corpus built by scripts/build_pretrain_corpus.py (configs/data/pretrain_corpus.yaml)
+    train = s2.data.train
+    assert train is not None and train.kind == "jsonl" and train.root == "dataset"
+    assert train.splits["train"].file == "corpus/pretrain_corpus.jsonl"
+    assert train.image_check == "decode" and train.missing_image_policy == "skip"
     assert set(s2.data.evals) == {"ktvic_dev", "uitviic_dev"}
     assert s2.data.evals["uitviic_dev"].root.endswith("uitvic_dataset")
     assert s2.data.batch_size * s2.train.grad_accum_steps * 4 == 2048
@@ -215,4 +216,4 @@ def test_real_stage2_and_stage3_configs_load() -> None:
     assert s3.optim.groups[0].modules == ["vision_encoder", "text_encoder", "encoder"]
     assert "logit_scale" in s3.optim.groups[1].modules
     assert s3.data.batch_size * s3.train.grad_accum_steps * 4 == 2048
-    assert s3.run.name == "stage3_end2end" and s3.data.train.kind == "mixture"
+    assert s3.run.name == "stage3_end2end" and s3.data.train.kind == "jsonl"

@@ -1,18 +1,2 @@
-# Exact pins for reproducible training boxes. Local Mac: torch==2.2.2 (last x86_64 wheel).
-torch==2.2.2 ; sys_platform == "darwin"
-torch>=2.6 ; sys_platform != "darwin"
-torchvision==0.17.2 ; sys_platform == "darwin"
-torchvision>=0.21 ; sys_platform != "darwin"
-transformers==4.57.1
-safetensors>=0.4
-pyyaml>=6,<7
-numpy>=1.26,<2
-pillow>=10
-tqdm>=4.66
-tensorboard>=2.15
-rouge-score>=0.1.2
-pycocoevalcap>=1.2
-sentencepiece>=0.2
-protobuf>=4
-pandas>=2
-scikit-learn>=1.3
+# Default environment = v1 (requirements-v1.txt). The v2 path (docs/architecture_v2.md) uses requirements-v2.txt.
+-r requirements-v1.txt

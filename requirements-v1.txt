@@ -1,0 +1,7 @@
+# v1 environment (paper reproduction): exact transformers pin. Local Mac: torch==2.2.2 (last x86_64 wheel).
+-r requirements-common.txt
+torch==2.2.2 ; sys_platform == "darwin"
+torch>=2.6 ; sys_platform != "darwin"
+torchvision==0.17.2 ; sys_platform == "darwin"
+torchvision>=0.21 ; sys_platform != "darwin"
+transformers==4.57.1

@@ -9,7 +9,7 @@ from torch import nn
 from transformers import AutoModel, XLMRobertaConfig, XLMRobertaModel
 
 from vivlmoe.config.schema import TextCfg
-from vivlmoe.utils.hf import resolve_model_path
+from vivlmoe.utils.hf import load_fp32, resolve_model_path
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class TextTower(nn.Module):
         self.cfg = cfg
         if cfg.pretrained:
             path = resolve_model_path(cfg.name)
-            self.model = AutoModel.from_pretrained(path, add_pooling_layer=False)
+            self.model = load_fp32(AutoModel, path, add_pooling_layer=False)
             self.provenance = f"hf:{cfg.name}"
         else:
             if cfg.tiny_config is None:

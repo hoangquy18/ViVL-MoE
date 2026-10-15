@@ -13,7 +13,8 @@ dependencies = [
   # torch==2.2.2 is the newest wheel for this Intel Mac; use torch>=2.6 on the CUDA training box (see docs/training.md).
   "torch>=2.2.2",
   "torchvision>=0.17.2",
-  "transformers>=4.57.1,<5",
+  # v1 pins 4.57.1 (requirements-v1.txt); the v2 Qwen3.5 head needs >= 5.2 (requirements-v2.txt).
+  "transformers>=4.57.1",
   "safetensors>=0.4",
   "pyyaml>=6,<7",
   "numpy>=1.26,<2",
@@ -33,6 +34,7 @@ wandb = ["wandb>=0.16"]
 hfdata = ["datasets>=2.19"]
 viet = ["underthesea>=6.8"]
 parity = ["evaluate>=0.4", "sacrebleu>=2.4"]
+v2 = ["timm>=1.0"]  # C-RADIOv4 remote code
 dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.5", "mypy>=1.10", "types-PyYAML"]
 
 [tool.setuptools.packages.find]

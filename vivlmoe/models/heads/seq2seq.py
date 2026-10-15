@@ -19,7 +19,7 @@ from vivlmoe.config.schema import ModelCfg
 from vivlmoe.models.backbone import ViVLBackbone
 from vivlmoe.models.outputs import EncoderOutput, Seq2SeqOutput
 from vivlmoe.models.projections import init_module_
-from vivlmoe.utils.hf import resolve_model_path
+from vivlmoe.utils.hf import load_fp32, resolve_model_path
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class Seq2SeqVLModel(nn.Module):
         self.backbone = backbone
         gen = cfg.generation
         if gen.pretrained:
-            self.decoder = T5ForConditionalGeneration.from_pretrained(resolve_model_path(gen.name))
+            self.decoder = load_fp32(T5ForConditionalGeneration, resolve_model_path(gen.name))
             self.decoder_provenance = f"hf:{gen.name}"
         else:
             if gen.tiny_config is None:

@@ -21,7 +21,7 @@ from transformers import (
 )
 
 from vivlmoe.config.schema import ModelCfg
-from vivlmoe.utils.hf import resolve_model_path
+from vivlmoe.utils.hf import load_fp32, resolve_model_path
 
 log = logging.getLogger(__name__)
 
@@ -80,9 +80,7 @@ class CLIPTextTeacher(_FrozenTeacher):
         super().__init__()
         self.target: TeacherTarget = cfg.stage1.teacher_target
         if cfg.vision.pretrained:
-            self.model = CLIPTextModelWithProjection.from_pretrained(
-                resolve_model_path(cfg.vision.name)
-            )
+            self.model = load_fp32(CLIPTextModelWithProjection, resolve_model_path(cfg.vision.name))
             self.provenance = f"hf:{cfg.vision.name}"
         else:
             self.model = CLIPTextModelWithProjection(_tiny_text_config(cfg))
@@ -113,8 +111,8 @@ class CLIPImageTeacher(_FrozenTeacher):
     def __init__(self, cfg: ModelCfg) -> None:
         super().__init__()
         if cfg.vision.pretrained:
-            self.model = CLIPVisionModelWithProjection.from_pretrained(
-                resolve_model_path(cfg.vision.name)
+            self.model = load_fp32(
+                CLIPVisionModelWithProjection, resolve_model_path(cfg.vision.name)
             )
             self.provenance = f"hf:{cfg.vision.name}"
         else:

@@ -12,8 +12,14 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
+
+if TYPE_CHECKING:  # keep config loading free of a torch import
+    from torch import nn
+
+M = TypeVar("M", bound="nn.Module")
 
 
 def repo_root() -> Path:
@@ -56,3 +62,13 @@ def resolve_model_path(name: str) -> str:
             "re-run scripts/fetch_models.py or fix configs/_base/model_paths.yaml"
         )
     return str(path)
+
+
+def load_fp32(cls: type[M], path: str, **kwargs: Any) -> M:
+    """``cls.from_pretrained(path, **kwargs)`` cast to fp32.
+
+    transformers 5 keeps a checkpoint's dtype when loading (bf16 for most recent repos), while trainable
+    modules and teacher targets must be fp32 (AMP handles the compute dtype). Frozen vision towers apply
+    their own dtype policy instead (``towers/vision.py``).
+    """
+    return cls.from_pretrained(path, **kwargs).float()
