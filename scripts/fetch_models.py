@@ -16,7 +16,8 @@ Usage::
 
 ``--only v2`` completes the Hugging Face cache for C-RADIOv4-SO400M (at ``model.vision.revision`` of
 ``configs/model/v2.yaml``), mmBERT-base, the SigLIP 2 giant / So400m towers and Qwen3.5-0.8B. These ship
-safetensors (sharded ones through ``model.safetensors.index.json``), so nothing is converted. C-RADIO's
+safetensors (sharded ones through ``model.safetensors.index.json``) or, like mmBERT-base,
+``pytorch_model.bin`` only, which torch >= 2.6 loads safely, so nothing is converted. C-RADIO's
 remote code is imported once here, by name and revision as the tower loads it, so the torchrun ranks find
 it cached instead of writing it concurrently. The printed commit is the one to pin as ``vision.revision``.
 """
@@ -60,6 +61,7 @@ MODELS["v2"] = [
     ("Qwen/Qwen3.5-0.8B", "llm", False),
 ]
 V2_PATTERNS = ["*.json", "*.py", "*.txt", "*.model", "*.jinja", "tokenizer*", "*.safetensors"]
+BIN_PATTERNS = ["pytorch_model*.bin", "pytorch_model.bin.index.json"]  # repos without safetensors
 COMMON_PATTERNS = [
     "config.json",
     "generation_config.json",
@@ -195,19 +197,33 @@ def v2_revisions() -> dict[str, str | None]:
     return {vision.name: vision.revision}
 
 
+def _check_weights(snap: Path, name: str) -> str | None:
+    """``name`` (single file) or ``name + '.index.json'`` with every shard present, else None."""
+    index = snap / f"{name}.index.json"
+    if index.exists():
+        shards = set(json.loads(index.read_text(encoding="utf-8"))["weight_map"].values())
+        missing = sorted(f for f in shards if not (snap / f).exists())
+        if missing:
+            raise SystemExit(f"{snap}: missing weight shards {missing}")
+        return index.name
+    return name if (snap / name).exists() else None
+
+
 def fetch_v2(hf_id: str, kind: str, revision: str | None) -> str:
     """Complete the HF cache for a v2 model; returns the snapshot commit."""
     from huggingface_hub import snapshot_download
 
     snap = Path(snapshot_download(repo_id=hf_id, revision=revision, allow_patterns=V2_PATTERNS))
-    index = snap / "model.safetensors.index.json"
-    if index.exists():
-        shards = set(json.loads(index.read_text(encoding="utf-8"))["weight_map"].values())
-        missing = sorted(f for f in shards if not (snap / f).exists())
-        if missing:
-            raise SystemExit(f"{hf_id}: snapshot {snap} is missing shards {missing}")
-    elif not (snap / "model.safetensors").exists():
-        raise SystemExit(f"{hf_id}: no model.safetensors / model.safetensors.index.json in {snap}")
+    weights = _check_weights(snap, "model.safetensors")
+    if weights is None:
+        # e.g. jhu-clsp/mmBERT-base ships pytorch_model.bin only: the v2 environment's torch >= 2.6
+        # lets transformers load it (weights_only), so no conversion is needed
+        snap = Path(
+            snapshot_download(repo_id=hf_id, revision=revision, allow_patterns=BIN_PATTERNS)
+        )
+        weights = _check_weights(snap, "pytorch_model.bin")
+    if weights is None:
+        raise SystemExit(f"{hf_id}: no safetensors or pytorch_model.bin weights in {snap}")
     if kind == "radio":
         from transformers import AutoConfig
 
