@@ -112,3 +112,20 @@ losses / upcycling / downstream tasks / metrics).
 | Dev splits | KTVIC / UIT-ViIC dev = seeded 20 % holdouts of train. The official UIT-ViIC dev (924 images) is missing from the local copy; its ids are recovered from the corpus' `vilc_*` images and only used to exclude it from pretraining | `configs/data/splits/` |
 | Stage-1 data | PhoMT, raw-text (`detokenization`) variant, first 2M of the 2.98M training pairs (`max_train_samples`); restored to `dataset/PhoMT` from the original PhoMT release because the legacy 20M-line training file was lost | `configs/pretrain/stage1_teacher.yaml` |
 | Pretraining corpus | the legacy dump in `dataset/` (1.15M Vietnamese captions: COCO-vi, localization, ViOCRVQA, Oxford-102, EVJVQA, ViVQA, ...; 185K English captions) instead of the paper's COCO-vi / local / LAION-EN / crawled mix. Decontamination by name: the ViTextVQA / OpenViVQA / ViOCRVQA conversions are dropped whole (splits unknown) and the UIT-ViIC test, official-dev and dev-holdout COCO ids are dropped from coco2017 / vilc / vivqa; content duplicates under other names are not detected | `scripts/build_pretrain_corpus.py`, `vivlmoe/data/corpus_prep.py`, report next to the corpus |
+
+## v2: changes beyond the paper (`docs/architecture_v2.md`)
+
+v2 is an additive path: every v1 row above still holds when the new keys keep their defaults
+(`vision.kind: clip`, `text.arch: xlm-roberta`, `stage1.teacher_kind: clip`, `contrastive_head: infonce`,
+`generation.kind: t5`).
+
+| Paper | v2 | Code / config |
+|---|---|---|
+| DFN CLIP ViT-H/14 @378, unfrozen in Stage 3 | C-RADIOv4-SO400M @512 (1024 tokens x 1152), frozen throughout; SigLIP 2 g / So400m as alternatives | `towers/vision_radio.py::RadioVisionTower`, `towers/vision_siglip.py::SiglipVisionTower`, `model.vision.{kind,image_size,revision}`, `data.transform.source: tower` |
+| XLM-R large text tower | mmBERT-base (ModernBERT) | `towers/text.py::TextTower` (`model.text.arch: modernbert`) |
+| Stage 1, Eq. 12: XLM-R `<s>` regresses the English CLIP text embedding on PhoMT | the student's masked-mean state regresses the SigLIP 2 g text embedding (normalised MSE, `loss_preset: legacy`) on corpus captions (caption -> same caption) + PhoMT | `towers/siglip_teacher.py`, `towers/teachers.py`, `stage1.py` (`student_pooling: mean`), adapters `caption_text` + named `mixture`, `configs/v2/distill_text.yaml` |
+| Appendix-A dev retrieval in CLIP space | the same evaluator in the SigLIP 2 joint space (the teacher's image tower and preprocessing) | `tasks/stage1_teacher.py::_retrieval_loaders` |
+| Eq. 13 symmetric InfoNCE, tau 0.07 | SigLIP sigmoid loss with a learnable bias (t = 10, b = -10 at init); texts all-gathered, `B_local` normalisation | `losses/contrastive.py::SigmoidContrastiveLoss`, `model.contrastive_head: sigmoid`, `ViVLBackbone.logit_bias` |
+| Stages 2 and 3 (W_v frozen, then everything unfrozen) | one dense alignment step, vision frozen, W_v trainable from the start (preset `sparse`) | `configs/v2/align.yaml` |
+| Upcycling + sparse training (Sec. 5) | unchanged | `configs/v2/{upcycle,sparse}.yaml` include `configs/moe/*` |
+| ViT5-large decoder on the bridged joint states | Qwen3.5-0.8B fed `[projected joint states ; prompt ; answer]`, left-padded, loss on answer tokens only | `models/heads/causal_lm.py::CausalLMVLModel`, `heads/llm_loader.py`, `data/collators.py::CausalLMCollator`, `generation.kind: causal_lm`, `task.llm_prompt_template` |

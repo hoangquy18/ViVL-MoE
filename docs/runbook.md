@@ -279,6 +279,40 @@ Luôn chạy `--dry-run` trước mỗi stage trên máy GPU để xem memory.
 Đầu ra dùng cho bước sau: `runs/stage1_teacher/checkpoints/best.pt` → Stage 2;
 `runs/stage2_contrastive/checkpoints/best.pt` → Stage 3; `runs/stage3_end2end/checkpoints/best.pt` → upcycle.
 
+### 3.2 Chuỗi pretrain v2 (distill → align → upcycle → sparse)
+
+Kiến trúc ở `docs/architecture_v2.md`. Chạy trong môi trường `requirements-v2.txt`, sau hai phép kiểm tra ở mục 2.5.
+Mỗi run v2 có tên riêng (`runs/v2_*`), nên không đụng run v1.
+
+```bash
+# Tải model v2 (C-RADIOv4-SO400M, mmBERT-base, SigLIP 2 g + So400m, Qwen3.5-0.8B) vào cache HF và nạp sẵn code
+# remote của C-RADIO. Lần đầu: ghim commit được in ra vào model.vision.revision của configs/model/v2.yaml.
+python scripts/fetch_models.py --only v2
+
+# Chạy thử rồi chạy thật (script tự gọi env_check --v2 và fetch_models --only v2 trước torchrun)
+PREFLIGHT=1 PIPELINE=v2 bash scripts/run_pretrain.sh
+mkdir -p runs && tmux new -s v2 'PIPELINE=v2 bash scripts/run_pretrain.sh 2>&1 | tee -a runs/pretrain_v2.log'
+
+# Distill chỉ trên caption (bỏ PhoMT khỏi train; phomt_dev vẫn được đánh giá)
+DISTILL_PHOMT=0 PIPELINE=v2 bash scripts/run_pretrain.sh distill
+
+# Từng bước bằng tay
+torchrun --nproc_per_node 4 scripts/train.py --config configs/v2/distill_text.yaml
+torchrun --nproc_per_node 4 scripts/train.py --config configs/v2/align.yaml
+python scripts/upcycle.py --config configs/v2/upcycle.yaml --out runs/v2_moe_upcycled/upcycled.pt
+torchrun --nproc_per_node 4 scripts/train.py --config configs/v2/sparse.yaml
+```
+
+| muốn chỉnh | ở đâu | ghi chú |
+|---|---|---|
+| vision encoder | `configs/v2/*.yaml` include `../model/v2.yaml`; đổi sang `v2_siglip2g.yaml` / `v2_siglip2_so400m.yaml` | chọn theo `probe_vision.py` (mục 2.5). Tower nào cũng đông lạnh; `data.transform.source: tower`. |
+| ghim code remote C-RADIO | `model.vision.revision` trong `configs/model/v2.yaml` | provenance thành `hf:<id>@<revision>` |
+| teacher / pooling distill | `model.stage1.{teacher_name,teacher_lowercase,student_pooling,loss_preset}` | teacher SigLIP bắt buộc `teacher_target: projected` và `data.tokenizer.en_max_len: 64` |
+| dữ liệu distill | `data.train.options.sources.{captions,phomt}` (`...phomt=null` để bỏ PhoMT; `...phomt.root=`, `...captions.root=`) | caption đọc từ corpus jsonl, bỏ trùng, cùng làm đầu vào teacher và student |
+| chọn checkpoint distill | `eval.selection_metric: ktvic_dev/rsum` | R@K trong không gian SigLIP 2 (ảnh qua tower ảnh của teacher) |
+| loss align | `model.contrastive_head: sigmoid`, `model.logit_scale_init: 0.1`, `model.logit_bias_init: -10` | text all-gather; negative mỗi step = `batch_size × số GPU` text cho mỗi ảnh |
+| learning rate align | `optim.groups` (`text` 3e-5, `fusion` 1e-4) | preset `sparse`: chỉ vision tower đông lạnh |
+
 ## 4. Phase 2 — upcycling và MoE pretraining (paper §5)
 
 ```bash
@@ -360,6 +394,23 @@ python scripts/evaluate.py --config configs/downstream/ktvic_caption.yaml \
 
 Kết quả sweep: `runs/<name>_sweep/sweep_summary.json` và `sweep_summary.md` (mean ± std của 5 seed).
 
+**Downstream v2** (backbone `runs/v2_moe_sparse`, head Qwen3.5 cho caption/VQA): mỗi file trong `configs/v2/downstream/`
+include file v1 cùng tên, nên vẫn sửa root dữ liệu ở file v1.
+
+```bash
+python scripts/sweep_seeds.py --config configs/v2/downstream/ktvic_caption.yaml --seeds 0 1 2 3 4 --nproc 4
+python scripts/sweep_seeds.py --config configs/v2/downstream/openvivqa.yaml     --seeds 0 1 2 3 4 --nproc 4
+python scripts/sweep_seeds.py --config configs/v2/downstream/vimacsa.yaml       --seeds 0 1 2 3 4 --nproc 4
+```
+
+| muốn chỉnh (v2) | ở đâu |
+|---|---|
+| prompt của LLM | `task.llm_prompt_template` (caption: `"Mô tả bức ảnh:"`; VQA: `"Câu hỏi: {question}\nTrả lời:"`), `task.llm_max_prompt_len` |
+| độ dài đáp án | `task.max_target_len` (token LLM, gồm EOS), `task.generation.max_new_tokens` |
+| learning rate | `optim.groups` trong `configs/v2/downstream/_llm_head.yaml` (`llm` 2e-5, `projector` 1e-4, `backbone` 3e-5) |
+| LLM khác / projector | `model_overrides.generation.{name,llm_class,projector}` (`mlp2` \| `linear`); OOM: `model_overrides.generation.gradient_checkpointing=true` |
+| dung lượng checkpoint | `checkpoint.keep_last_n: 1` (mỗi checkpoint chứa LLM fp32, vài GB) |
+
 | muốn chỉnh | ở đâu |
 |---|---|
 | encoder đầu vào (MoE hay dense baseline) | `model.from_checkpoint` và `init_from.path` trong `configs/downstream/_downstream_defaults.yaml` (mặc định `runs/moe_sparse/checkpoints/best.pt`; dense baseline = `runs/stage3_end2end/checkpoints/best.pt`). Override 2 key cùng lúc: `model.from_checkpoint=... init_from.path=...`. |
@@ -377,7 +428,7 @@ Kết quả sweep: `runs/<name>_sweep/sweep_summary.json` và `sweep_summary.md`
 
 ```bash
 make test        # unit + gloo 2-process (~3 phút, không tải gì)
-make test-all    # + chuỗi CLI: stage1 -> stage2 -> stage3 -> upcycle -> MoE -> downstream -> evaluate (~5 phút)
+make test-all    # + chuỗi CLI v1 (stage1 -> ... -> evaluate) và v2 (distill -> align -> upcycle -> sparse -> caption LLM -> evaluate)
 python -m pytest -o addopts="" -m hf_cache     # model small thật + ảnh KTVIC thật (sau fetch_models --only small)
 make lint
 
@@ -388,6 +439,11 @@ python scripts/train.py --config configs/_smoke/stage3_tiny.yaml run.dir=/tmp/sm
 python scripts/upcycle.py --config configs/_smoke/upcycle_tiny.yaml --dense /tmp/smoke/stage3_tiny/checkpoints/best.pt --out /tmp/smoke/upcycle_tiny/upcycled.pt model.from_checkpoint=/tmp/smoke/stage3_tiny/checkpoints/best.pt
 python scripts/train.py --config configs/_smoke/moe_tiny.yaml run.dir=/tmp/smoke model.from_checkpoint=/tmp/smoke/upcycle_tiny/upcycled.pt init_from.path=/tmp/smoke/upcycle_tiny/upcycled.pt
 python scripts/train.py --config configs/_smoke/caption_tiny.yaml run.dir=/tmp/smoke
+
+# Chuỗi v2 với model tí hon (RADIO stub, ModernBERT, teacher SigLIP và Qwen3-Next ngẫu nhiên): configs/v2/_smoke/
+python scripts/train.py --config configs/v2/_smoke/distill_tiny.yaml run.dir=/tmp/smoke2
+python scripts/train.py --config configs/v2/_smoke/align_tiny.yaml run.dir=/tmp/smoke2 init_from.path=/tmp/smoke2/distill_tiny/checkpoints/best.pt
+python scripts/train.py --config configs/v2/_smoke/caption_tiny.yaml run.dir=/tmp/smoke2   # head LLM, model độc lập
 
 # Dry-run config thật với model nhỏ (cần fetch_models --only small; PhoMT + KTVIC local)
 python scripts/train.py --config configs/pretrain/stage1_teacher.yaml --dry-run \

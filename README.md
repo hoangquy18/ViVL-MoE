@@ -65,6 +65,8 @@ Use `torchrun --nproc_per_node 4` on the GPU box; a plain `python` launch is sin
 
 `bash scripts/run_pretrain.sh` runs Phases 1-2 end to end on all GPUs of the box (skips finished stages, resumes
 interrupted ones; `PREFLIGHT=1` first runs every stage for a few steps into `runs_preflight/`, see `docs/runbook.md` 3.0).
+`PIPELINE=v2` runs the modernised backbone instead (C-RADIOv4 + mmBERT distilled from SigLIP 2, sigmoid loss, same MoE,
+Qwen3.5 head downstream; `requirements-v2.txt`, `docs/architecture_v2.md`, runbook 2.5 and 3.2).
 The individual commands:
 
 ```bash
@@ -107,7 +109,7 @@ ranks, ordered evaluation gathers cover every sample exactly once.
 
 ## Documentation
 
-**Tiếng Việt:** `docs/runbook.md` (toàn bộ lệnh chạy theo từng phase + chỗ cần chỉnh + lỗi thường gặp) và `docs/architecture.md` (kiến trúc, shape tensor, luồng dữ liệu / huấn luyện, chuỗi stage).
+**Tiếng Việt:** `docs/runbook.md` (toàn bộ lệnh chạy theo từng phase + chỗ cần chỉnh + lỗi thường gặp), `docs/architecture.md` (kiến trúc, shape tensor, luồng dữ liệu / huấn luyện, chuỗi stage) và `docs/architecture_v2.md` (kiến trúc v2: C-RADIOv4, mmBERT, sigmoid loss, head Qwen3.5).
 
 `docs/paper_mapping.md` (equation / section -> code, and every documented deviation), `docs/configs.md` (generated
 from the schema), `docs/training.md`, `docs/distributed.md`, `docs/checkpoints.md`, `docs/tasks.md` (Task protocol,

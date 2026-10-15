@@ -2,7 +2,8 @@
 
 Tài liệu mô tả code trong `vivlmoe/` bám theo paper *One Tower, Many Experts* (ViVL-MoE): model, loss,
 pipeline dữ liệu, vòng lặp huấn luyện, chuỗi checkpoint qua các stage. Lệnh chạy và cách chỉnh nằm ở
-`docs/runbook.md`; ánh xạ từng công thức sang code ở `docs/paper_mapping.md`.
+`docs/runbook.md`; ánh xạ từng công thức sang code ở `docs/paper_mapping.md`. Đường v2 (C-RADIOv4, mmBERT distill từ
+SigLIP 2, sigmoid loss, head Qwen3.5) được mô tả riêng ở `docs/architecture_v2.md`.
 
 ## 1. Bố cục package
 

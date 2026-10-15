@@ -35,8 +35,7 @@ class VisionCfg:
         "apple/DFN5B-CLIP-ViT-H-14-378"  # HF id (resolved through configs/_base/model_paths.yaml)
     )
     pretrained: bool = True  # False -> random init from `tiny_config` (tests only)
-    # random tiny model kwargs when pretrained=False: CLIPVisionConfig / SiglipVisionConfig / RadioStub
-    tiny_config: dict[str, Any] | None = None
+    tiny_config: dict[str, Any] | None = None  # random tower (HF config / RadioStub kwargs)
     kind: Literal["clip", "siglip", "radio"] = "clip"  # v2: SigLIP 2 or C-RADIOv4 (frozen-only)
     image_size: int | None = None  # input resolution; None -> the checkpoint's (C-RADIOv4: 512)
     revision: str | None = None  # pin a hub revision (C-RADIOv4 runs remote code)
@@ -52,8 +51,7 @@ class TextCfg:
     name: str = "FacebookAI/xlm-roberta-large"
     pretrained: bool = True
     tiny_config: dict[str, Any] | None = None  # random tiny model config when pretrained=False
-    # class of the random tiny model (a pretrained model is built from its own config)
-    arch: Literal["xlm-roberta", "modernbert"] = "xlm-roberta"
+    arch: Literal["xlm-roberta", "modernbert"] = "xlm-roberta"  # tiny-model class (v2: modernbert)
     gradient_checkpointing: bool = False
 
 
@@ -129,10 +127,10 @@ class Stage1Cfg:
     fc1_hidden: int | None = None  # optional hidden width for a 2-layer FC1 (paper: single Linear)
     # clip: CLIPTextConfig overrides when vision.pretrained=False. siglip: {text_config: ...,
     # vision_config: ...} of a random SigLIP teacher (set -> random, None -> load teacher_name)
-    teacher_tiny_config: dict[str, Any] | None = None
+    teacher_tiny_config: dict[str, Any] | None = None  # random teacher config (see the comment)
     # v2 distillation: the SigLIP 2 text tower as the teacher (multilingual, so captions can be
     # distilled VI -> VI). clip: the v1 teacher, read from model.vision.name.
-    teacher_kind: Literal["clip", "siglip"] = "clip"
+    teacher_kind: Literal["clip", "siglip"] = "clip"  # siglip: v2 text distillation
     teacher_name: str | None = None  # siglip only: a full SigLIP repo (text + vision towers)
     teacher_lowercase: bool = False  # lower-case teacher inputs (SigLIP 2 was trained that way)
     student_pooling: Literal["cls", "mean"] = "cls"  # cls: <s> state (paper); mean: masked mean
@@ -146,11 +144,11 @@ class GenerationHeadCfg:
     pretrained: bool = True
     # t5: T5Config overrides when pretrained=False (must set decoder_start_token_id).
     # causal_lm: config of a random tiny LLM of architecture tiny_arch.
-    tiny_config: dict[str, Any] | None = None
+    tiny_config: dict[str, Any] | None = None  # random head config when pretrained=False
     bridge_norm: bool = False  # t5 only: LayerNorm after the 768->d_model bridge
     gradient_checkpointing: bool = False
     # v2: the joint f_enc states (projected) prefix a decoder-only LLM such as Qwen3.5-0.8B
-    kind: Literal["t5", "causal_lm"] = "t5"
+    kind: Literal["t5", "causal_lm"] = "t5"  # causal_lm: v2 LLM head (Qwen3.5)
     llm_class: str | None = None  # causal_lm: transformers class (Qwen3.5: Qwen3_5ForCausalLM)
     tiny_arch: Literal["qwen3", "qwen3_next"] = "qwen3_next"  # causal_lm tiny_config architecture
     projector: Literal["linear", "mlp2"] = "mlp2"  # causal_lm: f_enc -> LLM embedding width
@@ -180,8 +178,8 @@ class ModelCfg:
     logit_scale_init: float = 0.07  # temperature tau (Eq. 13); parameter stores log(1/tau)
     logit_scale_max: float = 100.0  # exp(logit_scale) clamp, in linear units
     # v2: SigLIP sigmoid loss (adds a learnable `logit_bias`; SigLIP inits tau=0.1, bias=-10)
-    contrastive_head: Literal["infonce", "sigmoid"] = "infonce"
-    logit_bias_init: float = -10.0
+    contrastive_head: Literal["infonce", "sigmoid"] = "infonce"  # sigmoid: SigLIP loss (v2)
+    logit_bias_init: float = -10.0  # sigmoid head: initial bias b
     modality_embed_in_single_pass: bool = True  # add e_v/e_t in the separate contrastive passes too
     from_checkpoint: str | None = (
         None  # inherit the whole model section from a checkpoint (see loader)
@@ -245,7 +243,7 @@ class TokenizerCfg:
 class TransformCfg:
     # clip_processor: read the CLIP tower's processor; tower: per vision.kind (SigLIP / C-RADIO);
     # manual: explicit size with CLIP statistics
-    source: Literal["clip_processor", "tower", "manual"] = "clip_processor"
+    source: Literal["clip_processor", "tower", "manual"] = "clip_processor"  # v2 towers: tower
     size: int | None = None  # manual only
     crop_size: int | None = None
     augment: Literal["none", "random_resized_crop"] = "none"
@@ -481,7 +479,7 @@ class TaskCfg:
     max_target_len: int = 48  # captioning / vqa decoder targets
     prompt_template: str = "{question}"  # vqa
     # causal_lm head: text after the joint states, before the answer ({question} for vqa only)
-    llm_prompt_template: str = ""
+    llm_prompt_template: str = ""  # causal_lm head prompt
     llm_max_prompt_len: int = 128  # causal_lm head: prompt tokens (LLM tokenizer)
     train_on_all_answers: bool = False  # vqa: expand every gold answer into an example
     generation: GenerationCfg = field(default_factory=GenerationCfg)
