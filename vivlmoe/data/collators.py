@@ -7,7 +7,8 @@ Batch keys are the contract shared with the task models (``forward(batch, mode)`
 * stage 1: ``en_input_ids [B,77]`` (SigLIP teacher: ``[B,64]``), ``en_attention_mask``,
   ``vi_input_ids [B,Lv]``, ``vi_attention_mask``, ``uids``
 * seq2seq: ``pixel_values``, (``input_ids``, ``attention_mask`` when the task has text),
-  ``labels [B,Ld]`` with ``-100`` pads (train) | ``refs`` (eval), ``prompts``, ``uids``, ``image_ids``
+  ``labels [B,Ld]`` with ``-100`` pads (train) | ``refs`` (eval), ``prompts``, ``uids``, ``image_ids``;
+  the causal-LM head adds ``llm_input_ids [B,Lp]``, ``llm_attention_mask`` (its prompt)
 * classification: ``pixel_values [B,M,3,H,W]``, ``image_mask [B,M]``, ``input_ids [B,A,L]``,
   ``attention_mask [B,A,L]``, ``labels [B,A]``, ``uids``
 * retrieval image side: ``pixel_values``, ``uids``, ``image_ids``, ``img_idx``; text side:
@@ -138,13 +139,81 @@ class Seq2SeqCollator:
         batch["prompts"] = prompts
         if self.train:
             targets = [it["answer"] if "answer" in it else it["text"] for it in items]
-            labels, _ = _encode(self.dec, targets, self.max_target_len)
-            labels = labels.clone()
-            labels[labels == self.dec.pad_token_id] = -100
-            batch["labels"] = labels
+            batch["labels"] = self._labels(targets)
         else:
             batch["refs"] = [list(it["refs"]) for it in items]
         return batch
+
+    def _labels(self, targets: list[str]) -> torch.Tensor:
+        """Decoder targets (the T5 tokenizer appends ``</s>``) with ``-100`` at pads."""
+        labels, _ = _encode(self.dec, targets, self.max_target_len)
+        labels = labels.clone()
+        labels[labels == self.dec.pad_token_id] = -100
+        return labels
+
+
+class CausalLMCollator(Seq2SeqCollator):
+    """:class:`Seq2SeqCollator` for the decoder-only LLM head (``model.generation.kind: causal_lm``).
+
+    The backbone keys are unchanged (VQA: the question as ``input_ids`` / ``attention_mask`` for the
+    joint pass, routing probes and mode inference). Added: the LLM prompt ``llm_prompt_template``
+    as ``llm_input_ids`` / ``llm_attention_mask`` (no special tokens, right-padded; the model packs
+    the valid tokens). Train ``labels`` are the answer tokens + EOS in the LLM vocabulary with
+    ``-100`` pads, at most ``max_target_len`` tokens including the EOS.
+    """
+
+    def __init__(
+        self,
+        vi_tokenizer: PreTrainedTokenizerBase | None,
+        llm_tokenizer: PreTrainedTokenizerBase,
+        with_text: bool,
+        train: bool,
+        prompt_template: str = "{question}",
+        llm_prompt_template: str = "",
+        max_source_len: int = 64,
+        max_target_len: int = 48,
+        max_prompt_len: int = 128,
+    ) -> None:
+        super().__init__(
+            vi_tokenizer,
+            llm_tokenizer,
+            with_text,
+            train,
+            prompt_template,
+            max_source_len,
+            max_target_len,
+        )
+        if llm_tokenizer.eos_token_id is None:
+            raise ValueError("the LLM tokenizer has no eos token")
+        if not with_text and "{question}" in llm_prompt_template:
+            raise ValueError("llm_prompt_template: captioning has no {question}")
+        self.llm_template = llm_prompt_template
+        self.max_prompt_len = max_prompt_len
+
+    def __call__(self, items: Sequence[Batch]) -> Batch:
+        batch = super().__call__(items)
+        prompts = [self.llm_template.format(question=it.get("question", "")) for it in items]
+        enc = self.dec(
+            prompts,
+            add_special_tokens=False,
+            padding="longest",
+            truncation=True,
+            max_length=self.max_prompt_len,
+            return_tensors="pt",
+            return_token_type_ids=False,
+        )
+        batch["llm_input_ids"] = enc["input_ids"].long()
+        batch["llm_attention_mask"] = enc["attention_mask"].long()
+        return batch
+
+    def _labels(self, targets: list[str]) -> torch.Tensor:
+        ids = self.dec(targets, add_special_tokens=False, return_attention_mask=False)["input_ids"]
+        eos = int(self.dec.eos_token_id)
+        rows = [list(t[: self.max_target_len - 1]) + [eos] for t in ids]
+        labels = torch.full((len(rows), max(len(r) for r in rows)), -100, dtype=torch.long)
+        for i, row in enumerate(rows):
+            labels[i, : len(row)] = torch.tensor(row, dtype=torch.long)
+        return labels
 
 
 class MultiImageClsCollator:
@@ -242,6 +311,7 @@ class RetrievalTextCollator:
 
 __all__ = [
     "Batch",
+    "CausalLMCollator",
     "ContrastiveCollator",
     "MultiImageClsCollator",
     "RetrievalImageCollator",

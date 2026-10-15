@@ -1,6 +1,7 @@
 """Visual question answering (OpenViVQA, ViTextVQA, ViOCR-VQA; paper Sec. 6.1, Fig. 4b).
 
-Joint pass over ``[image tokens ; question tokens]`` -> ViT5 decoder generating the answer.
+Joint pass over ``[image tokens ; question tokens]`` -> ViT5 decoder generating the answer (v2: the
+decoder-only LLM head, ``model.generation.kind: causal_lm``, with ``task.llm_prompt_template``).
 ``task.train_on_all_answers`` expands every gold answer into a training example; evaluation keeps
 one item per question with all gold answers as references (ROUGE-L / CIDEr for OpenViVQA,
 token-F1 / EM for the short-answer sets).
@@ -49,16 +50,7 @@ class VQATask(DownstreamTask):
         return adapter_template
 
     def _collator(self, train: bool, template: str) -> Seq2SeqCollator:
-        tk = self.tokenizers
-        return Seq2SeqCollator(
-            tk.vi,
-            tk.require_decoder(),
-            with_text=True,
-            train=train,
-            prompt_template=template,
-            max_source_len=self.cfg.task.max_source_len,
-            max_target_len=self.cfg.task.max_target_len,
-        )
+        return self.generation_collator(train, with_text=True, template=template)
 
     def build_train_loader(self) -> DataLoader:
         _, train_tf, _ = self.transforms
@@ -107,6 +99,7 @@ class VQATask(DownstreamTask):
                 mode=self.forward_mode,
                 amp_dtype=self.amp_dtype,
                 allowed_metrics=VQA_METRICS,
+                pass_special_ids=self.causal_lm,
             )
             for split in self.cfg.data.evals
         }

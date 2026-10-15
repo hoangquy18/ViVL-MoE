@@ -32,6 +32,7 @@ from torch.utils.data import DataLoader
 
 from vivlmoe.config.schema import ConfigError, DataSourceCfg, RunConfig
 from vivlmoe.data.builders import build_transform_for, draft_size_for
+from vivlmoe.data.collators import CausalLMCollator, Seq2SeqCollator
 from vivlmoe.data.loaders import build_eval_loader, build_train_loader
 from vivlmoe.data.splits import ids_sha1, load_ids
 from vivlmoe.data.tokenization import TokenizerBundle, build_tokenizers
@@ -131,6 +132,39 @@ class DownstreamTask(Task):
     @property
     def transform_spec(self) -> ImageTransformSpec:
         return self.transforms[0]
+
+    @property
+    def causal_lm(self) -> bool:
+        """The v2 decoder-only LLM head (``model.generation.kind: causal_lm``) instead of ViT5."""
+        return self.cfg.model.generation.kind == "causal_lm"
+
+    def generation_collator(
+        self, train: bool, with_text: bool, template: str = "{question}"
+    ) -> Seq2SeqCollator:
+        """Captioning / VQA collator for the configured generation head."""
+        tk, t = self.tokenizers, self.cfg.task
+        vi = tk.vi if with_text else None
+        if self.causal_lm:
+            return CausalLMCollator(
+                vi,
+                tk.require_decoder(),
+                with_text=with_text,
+                train=train,
+                prompt_template=template,
+                llm_prompt_template=t.llm_prompt_template,
+                max_source_len=t.max_source_len,
+                max_target_len=t.max_target_len,
+                max_prompt_len=t.llm_max_prompt_len,
+            )
+        return Seq2SeqCollator(
+            vi,
+            tk.require_decoder(),
+            with_text=with_text,
+            train=train,
+            prompt_template=template,
+            max_source_len=t.max_source_len,
+            max_target_len=t.max_target_len,
+        )
 
     @property
     def draft_size(self) -> int | None:

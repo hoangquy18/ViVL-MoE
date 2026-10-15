@@ -140,15 +140,20 @@ class Stage1Cfg:
 
 @dataclass
 class GenerationHeadCfg:
-    """ViT5 seq2seq head (Sec. 6.1)."""
+    """ViT5 seq2seq head (Sec. 6.1), or the v2 decoder-only LLM head (``kind: causal_lm``)."""
 
     name: str = "VietAI/vit5-large"
     pretrained: bool = True
-    tiny_config: dict[str, Any] | None = (
-        None  # T5Config overrides when pretrained=False (must set decoder_start_token_id)
-    )
-    bridge_norm: bool = False  # LayerNorm after the 768->d_model bridge
+    # t5: T5Config overrides when pretrained=False (must set decoder_start_token_id).
+    # causal_lm: config of a random tiny LLM of architecture tiny_arch.
+    tiny_config: dict[str, Any] | None = None
+    bridge_norm: bool = False  # t5 only: LayerNorm after the 768->d_model bridge
     gradient_checkpointing: bool = False
+    # v2: the joint f_enc states (projected) prefix a decoder-only LLM such as Qwen3.5-0.8B
+    kind: Literal["t5", "causal_lm"] = "t5"
+    llm_class: str | None = None  # causal_lm: transformers class (Qwen3.5: Qwen3_5ForCausalLM)
+    tiny_arch: Literal["qwen3", "qwen3_next"] = "qwen3_next"  # causal_lm tiny_config architecture
+    projector: Literal["linear", "mlp2"] = "mlp2"  # causal_lm: f_enc -> LLM embedding width
 
 
 @dataclass
@@ -475,6 +480,9 @@ class TaskCfg:
     max_source_len: int = 64  # vqa question tokens
     max_target_len: int = 48  # captioning / vqa decoder targets
     prompt_template: str = "{question}"  # vqa
+    # causal_lm head: text after the joint states, before the answer ({question} for vqa only)
+    llm_prompt_template: str = ""
+    llm_max_prompt_len: int = 128  # causal_lm head: prompt tokens (LLM tokenizer)
     train_on_all_answers: bool = False  # vqa: expand every gold answer into an example
     generation: GenerationCfg = field(default_factory=GenerationCfg)
     metric_tokenizer: MetricTokenizerCfg = field(default_factory=MetricTokenizerCfg)
@@ -568,6 +576,13 @@ class RunConfig:
                 f"data.transform.source=clip_processor cannot describe a {v.kind} vision tower "
                 "(it would resize and centre-crop to the wrong size): use source: tower"
             )
+        g = self.model.generation
+        if g.kind == "causal_lm" and g.bridge_norm:
+            raise ConfigError(
+                "model.generation.bridge_norm is the T5 bridge's; causal_lm uses projector"
+            )
+        if self.task.name == "captioning" and "{question}" in self.task.llm_prompt_template:
+            raise ConfigError("task.llm_prompt_template: captioning has no {question}")
         s1 = self.model.stage1
         if s1.teacher_kind == "clip" and s1.teacher_name is not None:
             raise ConfigError(

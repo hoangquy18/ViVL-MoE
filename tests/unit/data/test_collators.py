@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
 from vivlmoe.data.collators import (
+    CausalLMCollator,
     ContrastiveCollator,
     RetrievalImageCollator,
     RetrievalTextCollator,
@@ -119,3 +121,33 @@ def test_retrieval_collators(bundle) -> None:
     )
     assert set(txt) == {"input_ids", "attention_mask", "uids", "image_ids", "cap_idx", "img_idx"}
     assert txt["cap_idx"].dtype == torch.long and txt["uids"] == [3]
+
+
+def test_causal_lm_collator_prompt_and_eos_terminated_answers(bundle) -> None:
+    dec = bundle.decoder
+    items = [
+        {"question": "con chó", "answer": "một con chó màu đỏ"},
+        {"question": "mèo", "answer": "hai"},
+    ]
+    for i, it in enumerate(items):
+        it.update(uid=i, image_id=f"img{i}", pixel_values=torch.zeros(3, 8, 8), refs=["x"])
+    collate = CausalLMCollator(
+        bundle.vi, dec, with_text=True, train=True, llm_prompt_template="{question} ?",
+        max_target_len=4,
+    )  # fmt: skip
+    batch = collate(items)
+    assert (
+        batch["llm_input_ids"][0].tolist()
+        == dec("con chó ?", add_special_tokens=False)["input_ids"]
+    )
+    assert batch["llm_attention_mask"].tolist() == [[1, 1, 1], [1, 1, 0]]
+    words = dec("một con chó", add_special_tokens=False)["input_ids"]  # 3 tokens + EOS = 4
+    assert batch["labels"][0].tolist() == [*words, dec.eos_token_id]
+    hai = dec("hai", add_special_tokens=False)["input_ids"]
+    assert batch["labels"][1].tolist() == [*hai, dec.eos_token_id, -100, -100]
+    assert batch["input_ids"].shape[0] == 2  # the backbone still encodes the question
+    caption = CausalLMCollator(None, dec, with_text=False, train=False)(items)
+    assert caption["llm_input_ids"].shape == (2, 0) and caption["refs"] == [["x"], ["x"]]
+    assert "labels" not in caption and "input_ids" not in caption
+    with pytest.raises(ValueError, match="has no {question}"):
+        CausalLMCollator(None, dec, with_text=False, train=True, llm_prompt_template="{question}")

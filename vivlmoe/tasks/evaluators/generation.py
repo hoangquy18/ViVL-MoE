@@ -53,6 +53,15 @@ def generation_kwargs(gen: GenerationCfg) -> dict[str, Any]:
     }
 
 
+def special_token_kwargs(tokenizer: PreTrainedTokenizerBase) -> dict[str, int]:
+    """``eos_token_id`` / ``pad_token_id`` of ``tokenizer`` for ``generate`` (pad falls back to EOS)."""
+    eos = tokenizer.eos_token_id
+    if eos is None:
+        raise ValueError(f"{type(tokenizer).__name__} has no eos token")
+    pad = tokenizer.pad_token_id
+    return {"eos_token_id": int(eos), "pad_token_id": int(eos if pad is None else pad)}
+
+
 def validate_metric_names(names: list[str], allowed: tuple[str, ...], where: str) -> list[str]:
     if not names:
         raise ValueError(f"{where}: task.metrics must list at least one of {list(allowed)}")
@@ -81,6 +90,7 @@ class GenerationEvaluator(Evaluator):
         mode: str | None = None,
         amp_dtype: torch.dtype | None = None,
         allowed_metrics: tuple[str, ...] = GENERATION_METRICS,
+        pass_special_ids: bool = False,
     ) -> None:
         self.ctx = ctx
         self.task_cfg = task_cfg
@@ -91,6 +101,8 @@ class GenerationEvaluator(Evaluator):
             task_cfg.metrics, allowed_metrics, f"GenerationEvaluator(mode={mode})"
         )
         self.gen_kwargs = generation_kwargs(task_cfg.generation)
+        if pass_special_ids:  # causal-LM heads: stop on the EOS the answers were trained with
+            self.gen_kwargs.update(special_token_kwargs(tokenizer))
         self.metric_tokenizer = MetricTokenizer(task_cfg.metric_tokenizer)
         self.bleu_tokenizer = MetricTokenizer(task_cfg.bleu_tokenizer)
 
@@ -192,5 +204,6 @@ __all__ = [
     "GENERATION_METRICS",
     "GenerationEvaluator",
     "generation_kwargs",
+    "special_token_kwargs",
     "validate_metric_names",
 ]

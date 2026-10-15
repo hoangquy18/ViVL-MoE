@@ -1,0 +1,30 @@
+# CPU smoke: VQA with the v2 LLM head. The question enters the joint pass (mmBERT-like tower) and the
+# LLM prompt. Same schedule as configs/_smoke/vqa_tiny.yaml.
+_include: [../../_base/train_defaults.yaml, ../../model/v2_tiny.yaml]
+run: {name: vqa_tiny, dir: runs/_smoke_v2, seed: 0}
+task:
+  name: vqa
+  max_source_len: 16
+  max_target_len: 8
+  prompt_template: "{question}"
+  llm_prompt_template: "câu hỏi : {question} trả lời :"
+  llm_max_prompt_len: 24
+  train_on_all_answers: true
+  metrics: [rougeL, f1, em]
+  generation: {num_beams: 2, max_new_tokens: 4, min_new_tokens: 1}
+data:
+  train: {kind: synthetic_vqa, split: train, options: {num_samples: 16, num_answers: 2, image_size: 32, seed: 2}}
+  evals:
+    dev: {kind: synthetic_vqa, split: dev, options: {num_samples: 8, num_answers: 2, image_size: 32, seed: 2}}
+  batch_size: 2
+  eval_batch_size: 4
+  num_workers: 0
+  pin_memory: false
+  persistent_workers: false
+  transform: {source: tower}
+optim: {lr: 1.0e-3}
+schedule: {kind: cosine, warmup_ratio: 0.25}
+train: {max_steps: 4, grad_accum_steps: 2, amp: {enabled: false}, log_every: 1}
+eval: {every_steps: 2, every_epochs: null, selection_metric: dev/rougeL, selection_mode: max, final_splits: [dev]}
+checkpoint: {every_steps: 2, every_epochs: null, keep_last_n: 1}
+logging: {tensorboard: false}

@@ -1,4 +1,5 @@
-"""Image captioning (KTVIC, UIT-ViIC; paper Sec. 6.1, Fig. 4a): image tokens only -> ViT5 decoder.
+"""Image captioning (KTVIC, UIT-ViIC; paper Sec. 6.1, Fig. 4a): image tokens only -> ViT5 decoder
+(v2: the decoder-only LLM head, ``model.generation.kind: causal_lm``).
 
 Training examples are every (image, caption) annotation (5 per KTVIC image) with the caption as the
 decoder target (CE with ``-100`` pads); evaluation decodes one caption per unique image with beam
@@ -38,13 +39,7 @@ class CaptioningTask(DownstreamTask):
     freeze_preset = "downstream_caption"
 
     def _collator(self, train: bool) -> Seq2SeqCollator:
-        return Seq2SeqCollator(
-            None,
-            self.tokenizers.require_decoder(),
-            with_text=False,
-            train=train,
-            max_target_len=self.cfg.task.max_target_len,
-        )
+        return self.generation_collator(train, with_text=False)
 
     def build_train_loader(self) -> DataLoader:
         _, train_tf, _ = self.transforms
@@ -79,6 +74,7 @@ class CaptioningTask(DownstreamTask):
                 self.tokenizers.require_decoder(),
                 mode=self.forward_mode,
                 amp_dtype=self.amp_dtype,
+                pass_special_ids=self.causal_lm,
             )
             for split in self.cfg.data.evals
         }

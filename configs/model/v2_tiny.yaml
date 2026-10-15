@@ -1,7 +1,8 @@
 # Tiny random v2 model for hermetic CPU tests: C-RADIO stub vision tower (vivlmoe/models/towers/radio_stub.py),
 # ModernBERT text tower (mmBERT's architecture), tiny resampler / encoder. Runs need data.transform.source: tower.
 # Text distillation teacher: a random SigLIP (projection 24 != text hidden 32, so the joint-space width
-# must come from projection_size). The LLM head is added by the milestone that uses it.
+# must come from projection_size). Generation head: a random Qwen3-Next (hybrid linear / full
+# attention like Qwen3.5) whose special ids follow the tiny "t5" tokenizer (<pad>=0, </s>=1).
 _include: [paper.yaml]
 model:
   vision:
@@ -26,3 +27,10 @@ model:
     teacher_tiny_config:
       text_config: {vocab_size: 1000, hidden_size: 32, intermediate_size: 64, num_hidden_layers: 2, num_attention_heads: 4, max_position_embeddings: 64, projection_size: 24}
       vision_config: {hidden_size: 24, intermediate_size: 48, num_hidden_layers: 2, num_attention_heads: 4, image_size: 32, patch_size: 16}
+  generation:
+    kind: causal_lm
+    name: Qwen/Qwen3.5-0.8B   # what v2.yaml loads; unused while pretrained=false
+    pretrained: false
+    tiny_arch: qwen3_next
+    projector: mlp2
+    tiny_config: {vocab_size: 1000, hidden_size: 32, intermediate_size: 64, num_hidden_layers: 4, num_attention_heads: 4, num_key_value_heads: 2, head_dim: 8, linear_num_value_heads: 4, linear_num_key_heads: 2, linear_key_head_dim: 8, linear_value_head_dim: 8, linear_conv_kernel_dim: 4, mlp_only_layers: [0, 1, 2, 3], num_experts: 0, layer_types: [linear_attention, linear_attention, linear_attention, full_attention], max_position_embeddings: 256, pad_token_id: 0, eos_token_id: 1, bos_token_id: 1}
