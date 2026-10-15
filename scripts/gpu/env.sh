@@ -20,7 +20,11 @@ export VIMACSA_ROOT=${VIMACSA_ROOT:-}
 
 export HF_REPO=${HF_REPO:-nhq188/vivlmoe-pretrain}                  # ảnh + corpus (public, tạm thời)
 export HF_EXTRAS_REPO=${HF_EXTRAS_REPO:-nhq188/vivlmoe-pretrain-extras}  # PhoMT, KTVIC, UIT-ViIC (private)
-export HF_HUB_DISABLE_XET=${HF_HUB_DISABLE_XET:-1}                  # LFS cổ điển: ổn định hơn hf_xet
+# Tải xuống: Xet (hf_xet) nhanh và bền hơn đường xet-bridge dùng khi tắt Xet (đọc hay quá hạn 10 s rồi resume).
+# Upload từ Mac mới cần HF_HUB_DISABLE_XET=1 (runbook 2.3).
+export HF_HUB_DISABLE_XET=${HF_HUB_DISABLE_XET:-0}
+export HF_HUB_DOWNLOAD_TIMEOUT=${HF_HUB_DOWNLOAD_TIMEOUT:-60}       # giây chờ mỗi lần đọc (mặc định HF: 10)
+export PULL_WORKERS=${PULL_WORKERS:-4}                            # số shard tải song song ở bước 1
 
 # ---------------------------------------------------------------- môi trường, run, log
 export VENV=${VENV:-$REPO/.venv}

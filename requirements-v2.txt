@@ -9,6 +9,7 @@ timm>=1.0
 einops>=0.7          # imported at module level by C-RADIOv4's remote code
 open_clip_torch>=2.20  # imported inside C-RADIOv4's OpenCLIP adaptor; transformers' import scan still requires it
 setuptools           # its distutils shim: C-RADIOv4's extra_models.py imports distutils
+hf_xet               # fast downloads from Xet-backed Hub repos (the pretraining shards)
 # Optional, CUDA builds: fast kernels for Qwen3.5's linear-attention layers (scripts/check_llm_head.py reports them)
 # flash-linear-attention
 # causal-conv1d
