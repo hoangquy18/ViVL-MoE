@@ -53,6 +53,18 @@ def test_teacher_collator_clip_77_and_longest(bundle) -> None:
     assert batch["vi_input_ids"][1, -1] == bundle.vi.pad_token_id
 
 
+def test_teacher_collator_lowercases_the_teacher_side_only(bundle) -> None:
+    items = [{"uid": 0, "src": "Một Con Chó", "tgt": "Một Con Chó"}]
+    collate = TeacherCollator(
+        bundle.vi, bundle.vi, en_max_len=64, vi_max_len=16, lowercase_teacher=True
+    )  # a case-sensitive teacher tokenizer (the fake CLIP one lower-cases by itself)
+    batch = collate(items)
+    assert batch["en_input_ids"].shape == (1, 64)
+    assert batch["en_input_ids"][0, :5].tolist() == bundle.vi("một con chó")["input_ids"]
+    assert batch["vi_input_ids"][0].tolist() == bundle.vi("Một Con Chó")["input_ids"]
+    assert bundle.vi.unk_token_id in batch["vi_input_ids"][0].tolist()
+
+
 def test_seq2seq_collator_caption_and_vqa(bundle) -> None:
     items = _img_items(2)
     train = Seq2SeqCollator(None, bundle.decoder, with_text=False, train=True, max_target_len=8)(

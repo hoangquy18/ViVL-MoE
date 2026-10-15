@@ -4,8 +4,8 @@ Batch keys are the contract shared with the task models (``forward(batch, mode)`
 
 * contrastive: ``pixel_values [B,3,H,W]``, ``input_ids [B,L]``, ``attention_mask [B,L]``, ``uids``,
   ``image_ids``
-* stage 1: ``en_input_ids [B,77]``, ``en_attention_mask``, ``vi_input_ids [B,Lv]``,
-  ``vi_attention_mask``, ``uids``
+* stage 1: ``en_input_ids [B,77]`` (SigLIP teacher: ``[B,64]``), ``en_attention_mask``,
+  ``vi_input_ids [B,Lv]``, ``vi_attention_mask``, ``uids``
 * seq2seq: ``pixel_values``, (``input_ids``, ``attention_mask`` when the task has text),
   ``labels [B,Ld]`` with ``-100`` pads (train) | ``refs`` (eval), ``prompts``, ``uids``, ``image_ids``
 * classification: ``pixel_values [B,M,3,H,W]``, ``image_mask [B,M]``, ``input_ids [B,A,L]``,
@@ -65,7 +65,9 @@ class ContrastiveCollator:
 
 
 class TeacherCollator:
-    """Stage 1: CLIP tokens padded to ``en_max_len`` (77, ``padding=max_length``), XLM-R longest."""
+    """Stage 1: teacher tokens padded to ``en_max_len`` (``padding=max_length``; CLIP 77, SigLIP 64),
+    student tokens to the longest. ``lowercase_teacher`` lower-cases the teacher side only (SigLIP 2
+    was trained on lower-cased text)."""
 
     def __init__(
         self,
@@ -73,16 +75,19 @@ class TeacherCollator:
         vi_tokenizer: PreTrainedTokenizerBase,
         en_max_len: int = 77,
         vi_max_len: int = 64,
+        lowercase_teacher: bool = False,
     ) -> None:
         if en_max_len > 77:
             raise ValueError("CLIP text encoder supports at most 77 tokens")
         self.clip, self.vi = clip_tokenizer, vi_tokenizer
         self.en_max_len, self.vi_max_len = en_max_len, vi_max_len
+        self.lowercase_teacher = lowercase_teacher
 
     def __call__(self, items: Sequence[Batch]) -> Batch:
-        en_ids, en_mask = _encode(
-            self.clip, [it["src"] for it in items], self.en_max_len, padding="max_length"
-        )
+        src = [it["src"] for it in items]
+        if self.lowercase_teacher:
+            src = [t.lower() for t in src]
+        en_ids, en_mask = _encode(self.clip, src, self.en_max_len, padding="max_length")
         vi_ids, vi_mask = _encode(self.vi, [it["tgt"] for it in items], self.vi_max_len)
         return {
             "en_input_ids": en_ids,

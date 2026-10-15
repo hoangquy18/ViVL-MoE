@@ -5,7 +5,9 @@ from __future__ import annotations
 from torch import nn
 
 from vivlmoe.config.schema import VisionCfg
-from vivlmoe.models.towers.clip_teacher import CLIPImageTeacher, CLIPTextTeacher, teacher_output_dim
+from vivlmoe.models.towers.clip_teacher import CLIPImageTeacher, CLIPTextTeacher
+from vivlmoe.models.towers.siglip_teacher import SiglipImageTeacher, SiglipTextTeacher
+from vivlmoe.models.towers.teachers import teacher_output_dim, teacher_vision_cfg
 from vivlmoe.models.towers.text import TextTower
 from vivlmoe.models.towers.vision import BaseVisionTower, VisionTower
 from vivlmoe.models.towers.vision_radio import RadioVisionTower
@@ -52,10 +54,13 @@ __all__ = [
     "CLIPImageTeacher",
     "CLIPTextTeacher",
     "RadioVisionTower",
+    "SiglipImageTeacher",
+    "SiglipTextTeacher",
     "SiglipVisionTower",
     "TextTower",
     "VisionTower",
     "build_vision_tower",
     "find_tower_paths",
     "teacher_output_dim",
+    "teacher_vision_cfg",
 ]

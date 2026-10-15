@@ -44,3 +44,22 @@ def test_build_tokenizers_tiny_configs() -> None:
         b2.require_clip()
     with pytest.raises(ValueError):
         build_tokenizers(m, DataCfg(tokenizer=TokenizerCfg(en_max_len=80)))
+
+
+def test_siglip_teacher_tokenizer_comes_from_the_teacher(monkeypatch: pytest.MonkeyPatch) -> None:
+    m = ModelCfg()
+    m.text.pretrained = False
+    m.stage1.teacher_kind = "siglip"
+    m.stage1.teacher_tiny_config = {"text_config": {"vocab_size": 500}}
+    data = DataCfg(tokenizer=TokenizerCfg(en_max_len=64))
+    assert len(build_tokenizers(m, data, need_clip=True).require_clip()) == 500
+    calls: list[str] = []
+
+    def fake(path: str) -> object:
+        calls.append(path)
+        return tiny_clip_tokenizer()
+
+    monkeypatch.setattr("vivlmoe.data.tokenization.AutoTokenizer.from_pretrained", fake)
+    m.stage1.teacher_tiny_config, m.stage1.teacher_name = None, "org/siglip-teacher"
+    build_tokenizers(m, data, need_clip=True)
+    assert calls == ["org/siglip-teacher"]  # not model.vision.name

@@ -1,7 +1,8 @@
 """Tokenizer bundle shared by the collators.
 
-``vi`` is the XLM-R tokenizer (student / joint text), ``clip_en`` the CLIP teacher tokenizer
-(Stage 1, max 77), ``decoder`` the ViT5 tokenizer (captioning / VQA targets). Towers configured with
+``vi`` is the XLM-R tokenizer (student / joint text), ``clip_en`` the Stage-1 teacher tokenizer
+(CLIP, max 77; v2: the SigLIP 2 teacher's, 64), ``decoder`` the ViT5 tokenizer (captioning / VQA
+targets). Towers configured with
 ``pretrained: false`` (random tiny configs) get deterministic in-memory WordLevel tokenizers whose
 vocabulary fits ``tiny_config.vocab_size`` — this is logged loudly and only meant for tests and the
 CPU smoke chain.
@@ -170,9 +171,14 @@ def build_tokenizers(
     )
     clip = None
     if need_clip:
-        v = model_cfg.vision
-        tiny = model_cfg.stage1.teacher_tiny_config or v.tiny_config
-        clip = _load(v.name, v.pretrained, tiny, "clip")
+        s1 = model_cfg.stage1
+        if s1.teacher_kind == "siglip":  # random SigLIP teachers get the tiny CLIP-style tokenizer
+            tiny_text = (s1.teacher_tiny_config or {}).get("text_config")
+            name = s1.teacher_name or "random-siglip-teacher"
+            clip = _load(name, s1.teacher_tiny_config is None, tiny_text, "clip")
+        else:
+            v = model_cfg.vision
+            clip = _load(v.name, v.pretrained, s1.teacher_tiny_config or v.tiny_config, "clip")
     dec = None
     if need_decoder:
         g = model_cfg.generation

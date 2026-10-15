@@ -268,6 +268,98 @@ class ColumnarImageText(RecordSet):
         return ColumnarImageText(keys, texts, ids, src)
 
 
+class ColumnarCaptionText(RecordSet):
+    """Packed captions as :class:`ParallelTextRecord` whose ``src`` **is** ``tgt`` (v2 distillation:
+    the multilingual SigLIP 2 teacher and the student read the same caption).
+
+    One UTF-8 buffer backs both sides, so ``map_text`` (the Vietnamese normaliser) normalises the
+    teacher's input as well. Each caption is its own group.
+    """
+
+    record_type = ParallelTextRecord
+
+    def __init__(self, texts: Sequence[str]) -> None:
+        self._buf, self._off = _pack(texts)
+        self._n = len(texts)
+
+    def __len__(self) -> int:
+        return self._n
+
+    def _text(self, i: int) -> str:
+        return self._buf[self._off[i] : self._off[i + 1]].tobytes().decode("utf-8")
+
+    def __getitem__(self, i):  # type: ignore[override]
+        if i < 0:
+            i += self._n
+        if not 0 <= i < self._n:
+            raise IndexError(i)
+        text = self._text(i)
+        return ParallelTextRecord(uid=i, src=text, tgt=text)
+
+    def image_ids(self) -> list[str]:
+        return [str(i) for i in range(self._n)]
+
+    def groups(self) -> list[list[int]]:
+        return [[i] for i in range(self._n)]
+
+    def select(self, indices: Sequence[int]) -> ColumnarCaptionText:
+        return ColumnarCaptionText([self._text(int(i)) for i in indices])
+
+    def map_text(self, fn: Callable[[str], str]) -> ColumnarCaptionText:
+        return ColumnarCaptionText([fn(self._text(i)) for i in range(self._n)])
+
+
+class ConcatRecordSet(RecordSet):
+    """Record sets of one record type back to back, e.g. caption text + PhoMT for v2 distillation.
+
+    ``uid`` is the position in the concatenation; ``select`` keeps a global index array (parts are
+    never copied, so lazy parts such as PhoMT stay lazy); image ids are prefixed with the part
+    number so equal ids of different parts never form one group.
+    """
+
+    def __init__(self, parts: Sequence[RecordSet], index: np.ndarray | None = None) -> None:
+        if not parts:
+            raise ValueError("ConcatRecordSet needs at least one part")
+        types = {p.record_type for p in parts}
+        if len(types) != 1:
+            names = sorted(t.__name__ for t in types)
+            raise TypeError(f"cannot concatenate record sets of different types: {names}")
+        self.parts = list(parts)
+        self.record_type = types.pop()
+        self._starts = np.concatenate([[0], np.cumsum([len(p) for p in parts])]).astype(np.int64)
+        self._index = None if index is None else np.asarray(index, dtype=np.int64)
+
+    def __len__(self) -> int:
+        return int(self._starts[-1]) if self._index is None else int(self._index.size)
+
+    def _locate(self, g: int) -> tuple[int, int]:
+        part = int(np.searchsorted(self._starts, g, side="right")) - 1
+        return part, g - int(self._starts[part])
+
+    def _global(self) -> np.ndarray:
+        return np.arange(int(self._starts[-1])) if self._index is None else self._index
+
+    def __getitem__(self, i):  # type: ignore[override]
+        n = len(self)
+        if i < 0:
+            i += n
+        if not 0 <= i < n:
+            raise IndexError(i)
+        part, j = self._locate(i if self._index is None else int(self._index[i]))
+        return with_uid(self.parts[part][j], i)
+
+    def image_ids(self) -> list[str]:
+        ids = [f"{k}:{iid}" for k, p in enumerate(self.parts) for iid in p.image_ids()]
+        return ids if self._index is None else [ids[int(g)] for g in self._index]
+
+    def select(self, indices: Sequence[int]) -> ConcatRecordSet:
+        idx = np.asarray(list(indices), dtype=np.int64)
+        return ConcatRecordSet(self.parts, self._global()[idx])
+
+    def map_text(self, fn: Callable[[str], str]) -> ConcatRecordSet:
+        return ConcatRecordSet([p.map_text(fn) for p in self.parts], self._index)
+
+
 def _fixed_width(buf: np.ndarray, off: np.ndarray) -> np.ndarray:
     """Packed UTF-8 strings -> fixed-width ``S<max_len>`` array (vectorised scatter, no Python
     strings); transient memory is ``n * max_len`` bytes."""
@@ -317,7 +409,9 @@ __all__ = [
     "Record",
     "RecordSet",
     "ListRecordSet",
+    "ColumnarCaptionText",
     "ColumnarImageText",
+    "ConcatRecordSet",
     "FrozenDict",
     "field",
     "groups_from_ids",

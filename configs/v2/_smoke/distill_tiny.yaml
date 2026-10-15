@@ -1,0 +1,26 @@
+# CPU smoke: v2 text distillation (ModernBERT student <- random SigLIP text teacher, mean pooling,
+# lower-cased teacher inputs) on synthetic parallel text; dev retrieval in the teacher's joint space
+# with its own image tower and square transform. Same schedule as configs/_smoke/stage1_tiny.yaml.
+_include: [../../_base/train_defaults.yaml, ../../model/v2_tiny.yaml]
+run: {name: distill_tiny, dir: runs/_smoke_v2, seed: 7}
+task: {name: stage1_teacher, eval_clip_retrieval: true}
+data:
+  train: {kind: synthetic_parallel, split: train, options: {num_samples: 32, seed: 1}}
+  evals:
+    phomt_dev: {kind: synthetic_parallel, split: dev, options: {num_samples: 8, seed: 1}}
+    ktvic_dev:
+      kind: synthetic_pairs
+      split: dev
+      root: runs/_smoke_v2/synthetic_data
+      options: {num_samples: 8, captions_per_image: 2, image_size: 32, seed: 1}
+  batch_size: 4
+  eval_batch_size: 4
+  num_workers: 0
+  transform: {source: tower}
+  tokenizer: {vi_max_len: 16, en_max_len: 64}
+optim: {lr: 1.0e-3, freeze_preset: stage1}
+schedule: {kind: cosine, warmup_ratio: 0.25}
+train: {max_steps: 4, epochs: null, grad_accum_steps: 2, amp: {enabled: false}, log_every: 1}
+eval: {every_steps: 2, every_epochs: null, selection_metric: phomt_dev/mse, selection_mode: min}
+checkpoint: {every_steps: 2, every_epochs: null, keep_last_n: 2, save_best: true}
+logging: {tensorboard: false}

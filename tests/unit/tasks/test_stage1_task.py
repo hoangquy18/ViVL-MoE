@@ -12,6 +12,7 @@ from torch import nn
 from tests.conftest import CONFIGS
 from vivlmoe.config import load_config
 from vivlmoe.config.schema import ConfigError
+from vivlmoe.models.towers import SiglipTextTeacher
 from vivlmoe.tasks import build_task, import_builtin_tasks
 from vivlmoe.tasks.evaluators.retrieval import ClipSpaceRetrievalEvaluator, RetrievalLoaders
 from vivlmoe.tasks.evaluators.teacher_mse import TeacherMSEEvaluator, per_sample_teacher_distance
@@ -23,6 +24,7 @@ from vivlmoe.utils.ckpt_meta import read_meta
 
 CTX = DistContext.single_process("cpu")
 SMOKE = CONFIGS / "_smoke" / "stage1_tiny.yaml"
+V2_DISTILL = CONFIGS / "v2" / "_smoke" / "distill_tiny.yaml"
 
 import_builtin_tasks()
 
@@ -156,3 +158,22 @@ def test_real_stage1_config_loads() -> None:
     assert cfg.data.batch_size * cfg.train.grad_accum_steps * 4 == 2048
     assert cfg.eval.selection_metric == "phomt_dev/mse" and cfg.eval.selection_mode == "min"
     assert cfg.optim.freeze_preset == "stage1" and cfg.train.early_stopping.patience == 2
+
+
+def test_v2_distill_with_a_siglip_teacher(tmp_path: Path) -> None:
+    cfg = load_config(V2_DISTILL, _overrides(tmp_path, "train.max_steps=2"))
+    task = build_task(cfg, CTX)
+    run_dir = Path(cfg.run.dir) / cfg.run.name
+    trainer = Trainer(cfg, task, CTX, run_dir)
+    trainer.sampler.set_epoch(0)
+    batch = next(iter(trainer.train_loader))
+    assert batch["en_input_ids"].shape == (4, 64) and task._teacher_collator().lowercase_teacher
+
+    last = trainer.fit()["last_eval"]
+    for key in ("phomt_dev/mse", "ktvic_dev/rsum", "ktvic_dev/i2t_r1"):
+        assert key in last and torch.isfinite(torch.tensor(last[key]))
+    assert isinstance(task._teacher, SiglipTextTeacher)
+    # retrieval in the teacher's joint space (width 24), not the RADIO tower's
+    assert trainer.evaluators["ktvic_dev"]._image_cache["ktvic_dev"].shape == (4, 24)
+    spec = read_meta(run_dir / "checkpoints" / "best.pt")["transform_spec"]
+    assert spec["resize_mode"] == "square" and list(spec["mean"]) == [0.5, 0.5, 0.5]

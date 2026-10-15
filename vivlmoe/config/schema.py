@@ -127,9 +127,15 @@ class Stage1Cfg:
         "eq12"  # eq12: mean_i ||z_vi - z_en||^2 ; legacy: normalize + F.mse_loss
     )
     fc1_hidden: int | None = None  # optional hidden width for a 2-layer FC1 (paper: single Linear)
-    teacher_tiny_config: dict[str, Any] | None = (
-        None  # CLIPTextConfig overrides when vision.pretrained=False
-    )
+    # clip: CLIPTextConfig overrides when vision.pretrained=False. siglip: {text_config: ...,
+    # vision_config: ...} of a random SigLIP teacher (set -> random, None -> load teacher_name)
+    teacher_tiny_config: dict[str, Any] | None = None
+    # v2 distillation: the SigLIP 2 text tower as the teacher (multilingual, so captions can be
+    # distilled VI -> VI). clip: the v1 teacher, read from model.vision.name.
+    teacher_kind: Literal["clip", "siglip"] = "clip"
+    teacher_name: str | None = None  # siglip only: a full SigLIP repo (text + vision towers)
+    teacher_lowercase: bool = False  # lower-case teacher inputs (SigLIP 2 was trained that way)
+    student_pooling: Literal["cls", "mean"] = "cls"  # cls: <s> state (paper); mean: masked mean
 
 
 @dataclass
@@ -225,7 +231,7 @@ class DataSourceCfg:
 @dataclass
 class TokenizerCfg:
     vi_max_len: int = 64  # XLM-R captions / questions
-    en_max_len: int = 77  # CLIP teacher (hard maximum 77)
+    en_max_len: int = 77  # Stage-1 teacher text (CLIP: hard maximum 77; SigLIP: 64)
     decoder_max_len: int = 64  # ViT5 targets
     cls_max_len: int = 170  # ViMACSA per-aspect sequences (legacy parity)
 
@@ -562,6 +568,28 @@ class RunConfig:
                 f"data.transform.source=clip_processor cannot describe a {v.kind} vision tower "
                 "(it would resize and centre-crop to the wrong size): use source: tower"
             )
+        s1 = self.model.stage1
+        if s1.teacher_kind == "clip" and s1.teacher_name is not None:
+            raise ConfigError(
+                "model.stage1.teacher_name only applies to teacher_kind=siglip (the CLIP teacher is "
+                "model.vision.name)"
+            )
+        if s1.teacher_kind == "siglip":
+            if s1.teacher_target != "projected":
+                raise ConfigError(
+                    "model.stage1.teacher_kind=siglip distils the joint-space embedding: "
+                    "teacher_target must be projected"
+                )
+            if s1.teacher_name is None and s1.teacher_tiny_config is None:
+                raise ConfigError(
+                    "model.stage1.teacher_kind=siglip needs teacher_name (or teacher_tiny_config "
+                    "for a random teacher)"
+                )
+            if self.task.name == "stage1_teacher" and self.data.tokenizer.en_max_len != 64:
+                raise ConfigError(
+                    "data.tokenizer.en_max_len must be 64 for a SigLIP teacher (its texts are "
+                    f"padded to 64 tokens at training time), got {self.data.tokenizer.en_max_len}"
+                )
         if self.data.batch_size < 1 or self.data.eval_batch_size < 1:
             raise ConfigError("data.batch_size / data.eval_batch_size must be >= 1")
         if self.data.num_workers < 0:

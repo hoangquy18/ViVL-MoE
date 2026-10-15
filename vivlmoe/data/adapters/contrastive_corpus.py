@@ -4,9 +4,12 @@
 * ``jsonl``      one ``{"image": "...", "caption": "..."}`` per line (``english.jsonl``, and the
   decontaminated corpus written by :mod:`vivlmoe.data.corpus_prep`)
 * ``hf_image_caption``  a Hugging Face dataset with image + caption columns
-* ``mixture``    concatenation of the above with a :class:`CompositeImageStore`
+* ``mixture``    concatenation of the above with a :class:`CompositeImageStore`, or of text-only
+  parallel sources (``caption_text``, ``phomt``: v2 distillation) as a
+  :class:`~vivlmoe.data.records.ConcatRecordSet`
 
-All produce :class:`~vivlmoe.data.records.ColumnarImageText` (byte buffers, no Python string lists).
+All image-text sources produce :class:`~vivlmoe.data.records.ColumnarImageText` (byte buffers, no
+Python string lists).
 """
 
 from __future__ import annotations
@@ -22,7 +25,13 @@ from vivlmoe.config.schema import DataSourceCfg
 from vivlmoe.data.adapters.base import BaseAdapter
 from vivlmoe.data.image_store import CompositeImageStore, HFImageStore, ImageStore
 from vivlmoe.data.manifest import CheckLevel
-from vivlmoe.data.records import ColumnarImageText, ImageTextRecord, RecordSet
+from vivlmoe.data.records import (
+    ColumnarImageText,
+    ConcatRecordSet,
+    ImageTextRecord,
+    ParallelTextRecord,
+    RecordSet,
+)
 from vivlmoe.data.registry import build_adapter, register_dataset
 
 log = logging.getLogger(__name__)
@@ -143,7 +152,8 @@ class HFImageCaptionCorpus(BaseAdapter):
 @register_dataset("mixture")
 class MixtureCorpus(BaseAdapter):
     """``options.sources``: list of DataSourceCfg mappings (each validated by its own adapter and
-    run through its own pipeline, including image checks)."""
+    run through its own pipeline, including image checks). Either all image-text sources or all
+    parallel-text sources (text-only: no image store)."""
 
     @dataclass
     class Options:
@@ -173,10 +183,17 @@ class MixtureCorpus(BaseAdapter):
         return CompositeImageStore(self._store_list(split))
 
     def _raw_records(self, split: str) -> RecordSet:
+        loaded = []
+        for ad in self.adapters:
+            loaded.append(ad.load_split(split))
+            log.info(
+                "mixture: source %s/%s contributes %d records", ad.kind, split, len(loaded[-1])
+            )
+        if all(recs.record_type is ParallelTextRecord for recs in loaded):
+            return ConcatRecordSet(loaded)
         parts: list[ColumnarImageText] = []
         counts: list[int] = []
-        for ad in self.adapters:
-            recs = ad.load_split(split)
+        for ad, recs in zip(self.adapters, loaded, strict=True):
             if not isinstance(recs, ColumnarImageText):
                 if recs.record_type is not ImageTextRecord:
                     raise TypeError(f"mixture source {ad.kind} yields {recs.record_type.__name__}")
@@ -186,7 +203,6 @@ class MixtureCorpus(BaseAdapter):
             st = ad.image_store(split)
             counts.append(len(st.stores) if isinstance(st, CompositeImageStore) else 1)
             parts.append(recs)
-            log.info("mixture: source %s/%s contributes %d records", ad.kind, split, len(recs))
         return ColumnarImageText.concat(parts, counts)
 
 

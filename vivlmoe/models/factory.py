@@ -13,7 +13,7 @@ from vivlmoe.models.backbone import ViVLBackbone
 from vivlmoe.models.heads.classifier import MultiImageClassifier
 from vivlmoe.models.heads.seq2seq import Seq2SeqVLModel
 from vivlmoe.models.stage1 import Stage1Student
-from vivlmoe.models.towers.clip_teacher import CLIPImageTeacher, CLIPTextTeacher, teacher_output_dim
+from vivlmoe.models.towers import teachers
 
 ModelKind = Literal["backbone", "stage1", "seq2seq", "classifier"]
 MODEL_KINDS: tuple[str, ...] = ("backbone", "stage1", "seq2seq", "classifier")
@@ -24,7 +24,7 @@ def build_task_model(kind: str, cfg: ModelCfg) -> nn.Module:
     if kind == "backbone":
         return ViVLBackbone(cfg)
     if kind == "stage1":
-        return Stage1Student(cfg, teacher_dim=teacher_output_dim(cfg))
+        return Stage1Student(cfg, teacher_dim=teachers.teacher_output_dim(cfg))
     if kind == "seq2seq":
         return Seq2SeqVLModel(ViVLBackbone(cfg), cfg)
     if kind == "classifier":
@@ -32,12 +32,14 @@ def build_task_model(kind: str, cfg: ModelCfg) -> nn.Module:
     raise ValueError(f"unknown model kind {kind!r}; expected one of {MODEL_KINDS}")
 
 
-def build_teacher(cfg: ModelCfg) -> CLIPTextTeacher:
-    return CLIPTextTeacher(cfg)
+def build_teacher(cfg: ModelCfg) -> nn.Module:
+    """The frozen Stage-1 text teacher (CLIP for v1, SigLIP 2 for v2) per ``stage1.teacher_kind``."""
+    return teachers.build_text_teacher(cfg)
 
 
-def build_image_teacher(cfg: ModelCfg) -> CLIPImageTeacher:
-    return CLIPImageTeacher(cfg)
+def build_image_teacher(cfg: ModelCfg) -> nn.Module:
+    """The frozen image tower of the teacher's joint space (Stage-1 dev retrieval)."""
+    return teachers.build_image_teacher(cfg)
 
 
 def load_model_cfg(path: str | Path) -> ModelCfg:

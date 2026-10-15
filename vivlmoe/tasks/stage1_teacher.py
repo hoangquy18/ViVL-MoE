@@ -6,6 +6,11 @@ the task - plan decision 11: no DDP / checkpoint bookkeeping for it) and
 the PhoMT parallel corpus; evaluation is the teacher MSE on the PhoMT dev split and, with
 ``task.eval_clip_retrieval``, R@K in the CLIP joint space on image-text dev splits (Appendix A)
 using cached CLIP image embeddings.
+
+v2 reuses this task to distil mmBERT from the SigLIP 2 text tower (``model.stage1.teacher_kind:
+siglip``): the teacher reads captions in either language (``caption_text`` sources, src == tgt) or
+PhoMT English, the student the Vietnamese side, and dev retrieval runs in the SigLIP joint space
+with the teacher's own image tower and preprocessing.
 """
 
 from __future__ import annotations
@@ -31,7 +36,9 @@ from vivlmoe.data.datasets import ParallelTextDataset, RetrievalEvalDataset
 from vivlmoe.data.loaders import build_eval_loader, build_train_loader
 from vivlmoe.data.records import ImageTextRecord, ParallelTextRecord
 from vivlmoe.data.tokenization import TokenizerBundle, build_tokenizers
+from vivlmoe.data.transforms import build_transform, square_spec
 from vivlmoe.losses.teacher import TeacherMSELoss
+from vivlmoe.models.towers.teachers import teacher_output_dim, teacher_vision_cfg
 from vivlmoe.tasks.base import LoaderBundle, Task
 from vivlmoe.tasks.evaluators.base import Evaluator
 from vivlmoe.tasks.evaluators.retrieval import (
@@ -125,7 +132,10 @@ class TeacherStudentTask(Task):
 
     def _teacher_collator(self) -> TeacherCollator:
         tok = self.tokenizers()
-        return TeacherCollator(tok.require_clip(), tok.vi, tok.en_max_len, tok.vi_max_len)
+        lowercase = self.cfg.model.stage1.teacher_lowercase
+        return TeacherCollator(
+            tok.require_clip(), tok.vi, tok.en_max_len, tok.vi_max_len, lowercase
+        )
 
     def build_train_loader(self) -> DataLoader:
         """Parallel-text train loader (``build_parallel_text`` + ``TeacherCollator``)."""
@@ -176,7 +186,11 @@ class TeacherStudentTask(Task):
     def _retrieval_loaders(
         self, split: str, src: DataSourceCfg, records: Any, adapter: Any, tok: TokenizerBundle
     ) -> RetrievalLoaders:
-        spec, _train_tf, eval_tf = build_transform_for(self.cfg)
+        if self.cfg.model.stage1.teacher_kind == "siglip":  # the teacher's own preprocessing
+            spec = square_spec(teacher_vision_cfg(self.cfg.model))
+            eval_tf = build_transform(spec, train=False)
+        else:
+            spec, _train_tf, eval_tf = build_transform_for(self.cfg)
         self._transform_spec = spec.to_dict()
         dataset = RetrievalEvalDataset(
             records, adapter.image_store(src.split), eval_tf, draft_size_for(self.cfg, spec)
@@ -238,8 +252,6 @@ class TeacherStudentTask(Task):
         return out
 
     def _teacher_dim(self) -> int:
-        from vivlmoe.models.towers.clip_teacher import teacher_output_dim
-
         return teacher_output_dim(self.cfg.model)
 
     def selection_metric(self) -> tuple[str | None, str]:
