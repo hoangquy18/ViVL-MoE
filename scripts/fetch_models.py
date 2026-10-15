@@ -12,6 +12,7 @@ Usage::
     python scripts/fetch_models.py --only paper     # DFN ViT-H/14-378 + xlm-roberta-large + ViT5-large
     python scripts/fetch_models.py                  # both (v1)
     python scripts/fetch_models.py --only v2        # v2 backbone (requirements-v2.txt environment)
+    python scripts/fetch_models.py --only v2-pretrain   # only what the v2 pretraining chain loads
 
 ``--only v2`` completes the Hugging Face cache for C-RADIOv4-SO400M (at ``model.vision.revision`` of
 ``configs/model/v2.yaml``), mmBERT-base, the SigLIP 2 giant / So400m towers and Qwen3.5-0.8B. These ship
@@ -45,14 +46,19 @@ MODELS: dict[str, list[tuple[str, str, bool]]] = {
         ("FacebookAI/xlm-roberta-large", "text", False),
         ("VietAI/vit5-large", "t5", True),
     ],
-    "v2": [
-        ("nvidia/C-RADIOv4-SO400M", "radio", False),
-        ("jhu-clsp/mmBERT-base", "text", False),
-        ("google/siglip2-giant-opt-patch16-384", "siglip", False),  # distillation teacher
-        ("google/siglip2-so400m-patch14-384", "siglip", False),  # alternative vision tower
-        ("Qwen/Qwen3.5-0.8B", "llm", False),
-    ],
 }
+# v2-pretrain: what the pretraining chain loads (vision tower, text tower, distillation teacher);
+# v2 adds the alternative vision tower (scripts/probe_vision.py) and the LLM head (downstream).
+MODELS["v2-pretrain"] = [
+    ("nvidia/C-RADIOv4-SO400M", "radio", False),
+    ("jhu-clsp/mmBERT-base", "text", False),
+    ("google/siglip2-giant-opt-patch16-384", "siglip", False),  # distillation teacher
+]
+MODELS["v2"] = [
+    *MODELS["v2-pretrain"],
+    ("google/siglip2-so400m-patch14-384", "siglip", False),  # alternative vision tower
+    ("Qwen/Qwen3.5-0.8B", "llm", False),
+]
 V2_PATTERNS = ["*.json", "*.py", "*.txt", "*.model", "*.jinja", "tokenizer*", "*.safetensors"]
 COMMON_PATTERNS = [
     "config.json",
@@ -234,7 +240,10 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
-        "--only", choices=["small", "paper", "v2", "all"], default="all", help="all = small + paper"
+        "--only",
+        choices=["small", "paper", "v2", "v2-pretrain", "all"],
+        default="all",
+        help="all = small + paper; v2-pretrain = the v2 models the pretraining chain loads",
     )
     parser.add_argument("--models-dir", default=str(REPO_ROOT / "models"))
     parser.add_argument(
@@ -248,7 +257,7 @@ def main() -> int:
     commits: dict[str, str] = {}
     for group in groups:
         print(f"== {group} ==")
-        if group == "v2":
+        if group.startswith("v2"):
             revisions = v2_revisions()
             for hf_id, kind, _ in MODELS[group]:
                 commits[hf_id] = fetch_v2(hf_id, kind, revisions.get(hf_id))

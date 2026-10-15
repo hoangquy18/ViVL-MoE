@@ -12,7 +12,8 @@ git clone https://github.com/hoangquy18/ViVL-MoE.git && cd ViVL-MoE
 |---|---|---|---|
 | 0 | `0_setup.sh` | tạo `.venv` Python 3.11, cài `requirements-v2.txt` + repo, kiểm tra GPU và môi trường | 10–20 phút |
 | 1 | `1_pull_data.sh` | kéo ảnh + corpus (repo public) và PhoMT, KTVIC, UIT-ViIC (repo private) về `/data/vivlmoe` (~110 GB); cần `hf auth login` trước | tuỳ mạng |
-| 2 | `2_fetch_models.sh` | tải C-RADIOv4, mmBERT, SigLIP 2, Qwen3.5 vào cache HF; ghim commit C-RADIO vào `configs/model/v2.yaml` | 10–30 phút |
+| 1b | `1b_shrink_images.sh` | ổ < ~200 GB: thu nhỏ ảnh corpus để cạnh ngắn còn 512 px (C-RADIO ép về 512, model không mất gì); 104 GB → ~60 GB | 10–30 phút |
+| 2 | `2_fetch_models.sh` | tải C-RADIOv4, mmBERT, SigLIP2-g (thêm SigLIP2-So400m, Qwen3.5 khi `PRETRAIN_ONLY=0`) vào cache HF; ghim commit C-RADIO vào `configs/model/v2.yaml` | 10–30 phút |
 | 3 | `3_checks.sh` | `probe_vision` (chọn vision encoder) + `check_llm_head` (Qwen3.5 dùng được không); **gửi log `logs/3_*.log` cho Claude** | 20–40 phút |
 | 4 | `4_preflight.sh` | chạy thử cả chuỗi pretrain, mỗi bước 4 step, vào `runs_preflight/` (bắt lỗi đường dẫn, OOM) | 30–60 phút |
 | 5 | `5_pretrain.sh` | pretrain thật: distill → align → upcycle → sparse vào `runs/v2_*` (chạy trong tmux) | ~1,5 ngày |
@@ -23,6 +24,7 @@ git clone https://github.com/hoangquy18/ViVL-MoE.git && cd ViVL-MoE
 bash scripts/gpu/0_setup.sh
 hf auth login
 bash scripts/gpu/1_pull_data.sh
+bash scripts/gpu/1b_shrink_images.sh   # chỉ khi ổ < ~200 GB
 bash scripts/gpu/2_fetch_models.sh
 bash scripts/gpu/3_checks.sh
 bash scripts/gpu/4_preflight.sh
@@ -31,6 +33,12 @@ tmux new -s ds 'bash scripts/gpu/6_downstream.sh'
 ```
 
 Ghi chú:
+- Ổ đĩa (dữ liệu, model và `runs/` thường nằm chung một ổ): dữ liệu ~106 GB (~62 GB sau bước 1b), model ~11 GB
+  (~17 GB khi `PRETRAIN_ONLY=0`), checkpoint ~30 GB lúc cao nhất, môi trường Python ~10 GB. Kiểm tra: `df -h /data
+  /workspace ~/.cache`.
+- `PRETRAIN_ONLY=1` (mặc định trong `env.sh`): chỉ tải model pretrain cần, bước 3 so C-RADIO với SigLIP2-g và bỏ
+  `check_llm_head`. Đặt `PRETRAIN_ONLY=0` trước khi làm downstream.
+- Cài thêm gói thì dùng `.venv/bin/pip`, đừng dùng `pip` của conda đang bật: các script luôn chạy trong `.venv`.
 - Pretrain dùng mọi GPU của máy (DDP). Batch mỗi GPU tự chỉnh theo số GPU và bộ nhớ, giữ 256 cặp mỗi step cho
   sigmoid loss và 512 mẫu mỗi bước tối ưu: 1 A40 → 256 × accum 2; 2× RTX 3090 → 128 × 2 GPU × accum 2.
   Downstream (bước 6) với head Qwen3.5 cần card ≥ 40 GB; trên card 24 GB thì chưa vừa.

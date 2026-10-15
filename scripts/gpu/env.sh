@@ -27,6 +27,10 @@ export HF_HUB_DOWNLOAD_TIMEOUT=${HF_HUB_DOWNLOAD_TIMEOUT:-60}       # giây ch�
 export PULL_WORKERS=${PULL_WORKERS:-4}                            # số shard tải song song ở bước 1
 export HF_XET_CHUNK_CACHE_SIZE_BYTES=${HF_XET_CHUNK_CACHE_SIZE_BYTES:-0}  # tắt chunk cache Xet (mặc định 10 GB)
 
+# Chỉ pretrain (mặc định): không tải SigLIP2-So400m và Qwen3.5 (~6 GB), bước 3 so C-RADIO với SigLIP2-g và
+# bỏ check_llm_head. PRETRAIN_ONLY=0 cho cả downstream.
+export PRETRAIN_ONLY=${PRETRAIN_ONLY:-1}
+
 # ---------------------------------------------------------------- môi trường, run, log
 export VENV=${VENV:-$REPO/.venv}
 RUNS=${RUNS:-runs}                         # thư mục run thật (bước 4 luôn dùng runs_preflight/)

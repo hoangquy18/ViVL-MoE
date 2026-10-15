@@ -97,7 +97,7 @@ if [ "$PIPELINE" = v2 ]; then
   "$PYTHON" scripts/env_check.py --v2
   # Tải model v2 và nạp code remote của C-RADIO một lần, trước torchrun (các rank không ghi cache cùng lúc).
   log "model v2 (cache HF) + code remote C-RADIO"
-  "$PYTHON" scripts/fetch_models.py --only v2
+  "$PYTHON" scripts/fetch_models.py --only v2-pretrain
   MANIFEST_CFG=configs/v2/align.yaml
 else
   "$PYTHON" scripts/env_check.py

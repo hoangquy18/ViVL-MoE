@@ -11,14 +11,21 @@ activate
 run python scripts/env_check.py --v2 2>&1 | tee "$LOG_DIR/3_env_check.log"
 
 log "a) probe_vision (kết quả: $RUNS/probe_vision.json)"
-run python scripts/probe_vision.py --out "$RUNS/probe_vision.json" \
+encoders=siglip2-g,siglip2-so400m,radio
+[ "$PRETRAIN_ONLY" != 1 ] || encoders=siglip2-g,radio    # So400m không được tải khi chỉ pretrain
+run python scripts/probe_vision.py --encoders "$encoders" --out "$RUNS/probe_vision.json" \
   "data.evals.ktvic_dev.root=$KTVIC_ROOT" "data.evals.uitviic_dev.root=$UITVIIC_ROOT" \
   2>&1 | tee "$LOG_DIR/3_probe_vision.log"
 
-log "b) check_llm_head (mọi dòng phải là PASS)"
 llm_ok=1
-run python scripts/check_llm_head.py --model Qwen/Qwen3.5-0.8B --llm-class Qwen3_5ForCausalLM \
-  2>&1 | tee "$LOG_DIR/3_check_llm_head.log" || llm_ok=0
+if [ "$PRETRAIN_ONLY" = 1 ]; then
+  log "b) bỏ qua check_llm_head (PRETRAIN_ONLY=1: head Qwen3.5 chỉ dùng ở downstream)"
+  : > "$LOG_DIR/3_check_llm_head.log"
+else
+  log "b) check_llm_head (mọi dòng phải là PASS)"
+  run python scripts/check_llm_head.py --model Qwen/Qwen3.5-0.8B --llm-class Qwen3_5ForCausalLM \
+    2>&1 | tee "$LOG_DIR/3_check_llm_head.log" || llm_ok=0
+fi
 
 log "tóm tắt"
 grep -E "rsum" "$LOG_DIR/3_probe_vision.log" || true
