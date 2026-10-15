@@ -1,4 +1,11 @@
-"""Symmetric InfoNCE (paper Eq. 13) with global-batch negatives across DDP ranks.
+"""Contrastive losses with global-batch negatives across DDP ranks.
+
+* :class:`ContrastiveLoss` - symmetric InfoNCE (paper Eq. 13, v1).
+* :class:`SigmoidContrastiveLoss` - SigLIP's pairwise sigmoid loss (v2): every image-text pair is an
+  independent binary decision, so the loss does not depend on a large batch for its normaliser (the
+  4x A40 setup sees 256-512 negatives per step).
+
+InfoNCE details:
 
 Features are gathered with the grad-flowing ``torch.distributed.nn.functional.all_gather`` and the
 labels are the local rows ``arange(B) + rank * B`` (open_clip style). Per-rank losses are means over the
@@ -82,6 +89,53 @@ class ContrastiveLoss:
         with torch.no_grad():
             stats = {
                 "acc_i2t": (logits_i2t.argmax(dim=1) == labels).float().mean().item(),
+                "acc_t2i": (logits_t2i.argmax(dim=1) == labels).float().mean().item(),
+            }
+        return loss, stats
+
+
+class SigmoidContrastiveLoss:
+    """``(loss, {"acc_i2t", "acc_t2i"}) = loss(image_embeds, text_embeds, logit_scale, logit_bias)``.
+
+    SigLIP (Zhai et al., 2023): ``loss = -(1/B) sum_i sum_j log sigmoid(z_ij * (t * <x_i, y_j> + b))``
+    over the global batch, with ``z_ij = +1`` for matching pairs and ``-1`` otherwise; ``t`` arrives
+    already exponentiated and clamped, ``b`` is the learnable bias. Only the texts are all-gathered
+    (grad-flowing): each rank scores its local images against every text and divides by its local
+    batch, so every pair is counted once and DDP's gradient averaging gives the single-process
+    gradient of the global loss. The images are gathered without gradient, for ``acc_t2i`` only.
+    """
+
+    def __init__(self, gather: bool = True) -> None:
+        self.gather = gather
+
+    def __call__(
+        self,
+        image_embeds: torch.Tensor,
+        text_embeds: torch.Tensor,
+        logit_scale: torch.Tensor,
+        logit_bias: torch.Tensor,
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        if image_embeds.shape != text_embeds.shape or image_embeds.ndim != 2:
+            raise ValueError(
+                f"image/text embeds must be [B,d] with equal shapes, got "
+                f"{tuple(image_embeds.shape)} / {tuple(text_embeds.shape)}"
+            )
+        img, txt = image_embeds.float(), text_embeds.float()
+        scale, bias = logit_scale.float(), logit_bias.float()
+        b = img.shape[0]
+        distributed = self.gather and ContrastiveLoss._distributed()
+        all_txt = _gather_features(txt) if distributed else txt
+        offset = dist.get_rank() * b if distributed else 0
+        logits = scale * img @ all_txt.t() + bias  # [B, W*B]
+        labels = torch.arange(b, device=img.device) + offset
+        signs = -torch.ones_like(logits)
+        signs[torch.arange(b, device=img.device), labels] = 1.0
+        loss = -F.logsigmoid(signs * logits).sum() / b
+        with torch.no_grad():
+            all_img = _gather_features(img.detach()) if distributed else img
+            logits_t2i = scale * txt @ all_img.t() + bias
+            stats = {
+                "acc_i2t": (logits.argmax(dim=1) == labels).float().mean().item(),
                 "acc_t2i": (logits_t2i.argmax(dim=1) == labels).float().mean().item(),
             }
         return loss, stats

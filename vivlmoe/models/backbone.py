@@ -50,6 +50,8 @@ class ViVLBackbone(nn.Module):
         self.modality_embed = ModalityEmbedding(dim)
         self.encoder = MultimodalEncoder(cfg.encoder, cfg.moe)
         self.logit_scale = nn.Parameter(torch.tensor(math.log(1.0 / cfg.logit_scale_init)))
+        if cfg.contrastive_head == "sigmoid":  # absent otherwise: v1 state dicts are unchanged
+            self.logit_bias = nn.Parameter(torch.tensor(float(cfg.logit_bias_init)))
         self.init_new_weights()
         log.info(
             "ViVLBackbone: vision tokens %d x %d -> W_v %s -> %d latents; text d_t=%d; f_enc %d x dim %d (moe=%s)",
@@ -182,6 +184,7 @@ class ViVLBackbone(nn.Module):
                 text_embeds=txt,
                 logit_scale=self.scaled_logit_scale(),
                 router_outputs=out_v.router_outputs + out_t.router_outputs,
+                logit_bias=getattr(self, "logit_bias", None),
             )
         if mode == "encode_image":
             return {"embeds": self._image_embeds(batch["pixel_values"])[0]}

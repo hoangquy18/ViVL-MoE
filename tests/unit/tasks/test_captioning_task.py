@@ -178,3 +178,15 @@ logging: {{tensorboard: false}}
     )
     assert len(rows) == 1 and len(rows[0]["references"]) == 5  # KTVIC: 5 captions per image
     assert_vietnamese(rows[0]["references"][0])
+
+
+def test_sigmoid_backbone_freezes_logit_bias_downstream(tmp_path: Path) -> None:
+    cfg = smoke_config(
+        "caption_tiny", tmp_path, "model.contrastive_head=sigmoid", "train.max_steps=1"
+    )
+    task = build_task(cfg, DistContext.single_process("cpu"))
+    assert task.always_frozen() == [*FREEZE_PRESETS["downstream_caption"], "backbone.logit_bias"]
+    trainer = Trainer(
+        cfg, task, DistContext.single_process("cpu"), Path(cfg.run.dir) / cfg.run.name
+    )
+    assert not trainer.raw_model.backbone.logit_bias.requires_grad  # unused downstream (DDP strict)

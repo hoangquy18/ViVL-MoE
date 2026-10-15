@@ -63,6 +63,7 @@ class ContrastiveOutput:
     router_outputs: list[RouterOutput] = field(
         default_factory=list
     )  # visual-pass + text-pass outputs
+    logit_bias: torch.Tensor | None = None  # sigmoid head only (model.contrastive_head)
 
 
 @dataclass

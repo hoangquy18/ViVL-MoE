@@ -31,7 +31,7 @@ from vivlmoe.data.datasets import RetrievalEvalDataset
 from vivlmoe.data.loaders import build_train_loader
 from vivlmoe.data.records import ImageTextRecord
 from vivlmoe.data.tokenization import TokenizerBundle, build_tokenizers
-from vivlmoe.losses.contrastive import ContrastiveLoss
+from vivlmoe.losses.contrastive import ContrastiveLoss, SigmoidContrastiveLoss
 from vivlmoe.tasks.base import LoaderBundle, Task
 from vivlmoe.tasks.evaluators.base import Evaluator
 from vivlmoe.tasks.evaluators.retrieval import (
@@ -84,7 +84,14 @@ class ContrastiveTask(Task):
     def __init__(self, cfg: RunConfig, ctx: DistContext) -> None:
         super().__init__(cfg, ctx)
         lc = cfg.loss.contrastive
-        self.loss = ContrastiveLoss(lc.gather, lc.symmetric_reduction)
+        self.sigmoid = (
+            cfg.model.contrastive_head == "sigmoid"
+        )  # v2; inherited with the model section
+        self.loss: Any = (
+            SigmoidContrastiveLoss(lc.gather)
+            if self.sigmoid
+            else ContrastiveLoss(lc.gather, lc.symmetric_reduction)
+        )
         self._router_loss: Any = None
         self._tokenizers: TokenizerBundle | None = None
         self._eval_datasets: dict[str, RetrievalEvalDataset] = {}
@@ -175,13 +182,20 @@ class ContrastiveTask(Task):
     # ------------------------------------------------------------------ training
     def train_step(self, model: nn.Module, batch: dict[str, Any], sc: StepContext) -> StepOutput:
         out = model(batch, "contrastive")
-        loss_c, stats = self.loss(out.image_embeds, out.text_embeds, out.logit_scale)
+        if self.sigmoid:
+            loss_c, stats = self.loss(
+                out.image_embeds, out.text_embeds, out.logit_scale, out.logit_bias
+            )
+        else:
+            loss_c, stats = self.loss(out.image_embeds, out.text_embeds, out.logit_scale)
         metrics: dict[str, float] = {
             "loss_contrastive": float(loss_c.detach()),
             "acc_i2t": stats["acc_i2t"],
             "acc_t2i": stats["acc_t2i"],
             "logit_scale": float(out.logit_scale.detach()),
         }
+        if self.sigmoid:
+            metrics["logit_bias"] = float(out.logit_bias.detach())
         loss = loss_c
         raw = getattr(model, "module", model)
         encoder = encoder_of(raw)

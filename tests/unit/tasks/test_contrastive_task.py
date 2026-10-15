@@ -217,3 +217,36 @@ def test_real_stage2_and_stage3_configs_load() -> None:
     assert "logit_scale" in s3.optim.groups[1].modules
     assert s3.data.batch_size * s3.train.grad_accum_steps * 4 == 2048
     assert s3.run.name == "stage3_end2end" and s3.data.train.kind == "jsonl"
+
+
+def test_sigmoid_head_step_metrics(tmp_path: Path) -> None:
+    extra = ("train.max_steps=1", "model.contrastive_head=sigmoid", "model.logit_scale_init=0.1")
+    cfg = load_config(SMOKE, _overrides(tmp_path, *extra))
+    task = build_task(cfg, CTX)
+    trainer = Trainer(cfg, task, CTX, Path(cfg.run.dir) / cfg.run.name)
+    trainer.sampler.set_epoch(0)
+    res = trainer.train_optimizer_step(iter(trainer.train_loader))
+    assert torch.isfinite(res.loss)
+    assert set(res.metrics) == {
+        "loss_contrastive",
+        "acc_i2t",
+        "acc_t2i",
+        "logit_scale",
+        "logit_bias",
+    }
+    assert float(res.metrics["logit_scale"]) == pytest.approx(10.0, rel=1e-2)
+    assert float(res.metrics["logit_bias"]) == pytest.approx(-10.0)
+    assert (
+        trainer.raw_model.logit_bias.grad is not None or trainer.raw_model.logit_bias.requires_grad
+    )
+
+
+def test_infonce_backbone_has_no_logit_bias(tmp_path: Path) -> None:
+    from vivlmoe.models.factory import build_task_model
+
+    v1 = build_task_model("backbone", load_config(SMOKE, _overrides(tmp_path)).model)
+    assert "logit_bias" not in v1.state_dict()  # v1 checkpoints keep their layout
+    v2 = build_task_model(
+        "backbone", load_config(SMOKE, _overrides(tmp_path, "model.contrastive_head=sigmoid")).model
+    )
+    assert float(v2.state_dict()["logit_bias"]) == -10.0

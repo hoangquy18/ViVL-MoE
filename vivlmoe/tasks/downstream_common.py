@@ -98,8 +98,12 @@ class DownstreamTask(Task):
         return build_task_model(self.model_kind, self.cfg.model)
 
     def always_frozen(self) -> list[str]:
-        """Freeze preset of the objective (ViT + ``logit_scale``; captioning also freezes the text tower)."""
-        return list(FREEZE_PRESETS[self.freeze_preset])
+        """Freeze preset of the objective (ViT + ``logit_scale``; captioning also freezes the text tower),
+        plus the sigmoid head's ``logit_bias`` when the backbone has one (unused downstream)."""
+        frozen = list(FREEZE_PRESETS[self.freeze_preset])
+        if self.cfg.model.contrastive_head == "sigmoid":
+            frozen.append("backbone.logit_bias")
+        return frozen
 
     @property
     def is_moe(self) -> bool:

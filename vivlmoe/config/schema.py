@@ -168,6 +168,9 @@ class ModelCfg:
     init_std: float = 0.02  # for W_v, W_t, resampler, f_enc, modality embeddings
     logit_scale_init: float = 0.07  # temperature tau (Eq. 13); parameter stores log(1/tau)
     logit_scale_max: float = 100.0  # exp(logit_scale) clamp, in linear units
+    # v2: SigLIP sigmoid loss (adds a learnable `logit_bias`; SigLIP inits tau=0.1, bias=-10)
+    contrastive_head: Literal["infonce", "sigmoid"] = "infonce"
+    logit_bias_init: float = -10.0
     modality_embed_in_single_pass: bool = True  # add e_v/e_t in the separate contrastive passes too
     from_checkpoint: str | None = (
         None  # inherit the whole model section from a checkpoint (see loader)
