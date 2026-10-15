@@ -36,8 +36,9 @@ Ghi chú:
   Downstream (bước 6) với head Qwen3.5 cần card ≥ 40 GB; trên card 24 GB thì chưa vừa.
 - Bước 5 và 6 chạy lâu: luôn chạy trong tmux (`tmux attach -t v2` để xem lại). Bị ngắt thì chạy lại đúng lệnh:
   bước đã xong được bỏ qua, bước dở dang chạy tiếp từ `last.pt`.
-- Hết bộ nhớ (OOM) ở align/sparse: sửa `data.batch_size: 128` và `train.grad_accum_steps: 4` trong
-  `configs/v2/{align,sparse}.yaml`, rồi `bash scripts/gpu/4_preflight.sh --fresh`. Ở downstream:
+- Hết bộ nhớ (OOM) ở pretrain: giảm nửa batch mỗi GPU, gấp đôi accum (ghi đè giá trị tự chỉnh), ví dụ trên
+  2× 3090: `EXTRA="data.batch_size=64 train.grad_accum_steps=4" bash scripts/gpu/4_preflight.sh --fresh`, rồi
+  dùng đúng `EXTRA` đó cho `5_pretrain.sh`. Ở downstream:
   `EXTRA_OVERRIDES="model_overrides.generation.gradient_checkpointing=true" bash scripts/gpu/6_downstream.sh`.
 - VQA và ViMACSA không có trên HF: chép dữ liệu lên máy, đặt `OPENVIVQA_ROOT`, `VITEXTVQA_ROOT`, `VIOCRVQA_ROOT`,
   `VIMACSA_ROOT` trong `env.sh`, và kiểm tra layout JSON trong `configs/downstream/<dataset>.yaml` với file thật.

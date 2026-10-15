@@ -4,8 +4,8 @@
 #
 #   bash scripts/gpu/4_preflight.sh            # bước đã xong ở lần trước được bỏ qua
 #   bash scripts/gpu/4_preflight.sh --fresh    # xoá runs_preflight/ (chỉ là kết quả chạy thử) rồi chạy lại
-# Batch mỗi GPU tự chỉnh theo số GPU và bộ nhớ (pretrain_overrides trong env.sh). Vẫn OOM: đặt
-# GPU_MEM_GB=24 (ép tối đa 128 mẫu mỗi GPU) hoặc NGPU/GPU_MEM_GB tuỳ ý, rồi chạy lại với --fresh.
+# Batch mỗi GPU tự chỉnh theo số GPU và bộ nhớ (pretrain_overrides trong env.sh). Vẫn OOM: ghi đè bằng EXTRA
+# (đặt sau nên thắng), ví dụ EXTRA="data.batch_size=64 train.grad_accum_steps=4", rồi chạy lại với --fresh.
 source "$(dirname "$0")/env.sh"
 activate
 
