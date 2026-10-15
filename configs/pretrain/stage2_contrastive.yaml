@@ -1,0 +1,25 @@
+# Stage 2 - contrastive alignment (paper Sec. 4.2, Eq. 13): train XLM-R, W_t, the resampler, f_enc,
+# modality embeddings and tau; ViT and W_v frozen (freeze_preset stage2). The text tower starts from the
+# Stage-1 student (init_from text_encoder only). Effective batch = 64 x accum 8 x 4 GPUs = 2048
+# (paper: 256 x 8); contrastive negatives = the per-step global batch of 64 x 4 = 256 pairs.
+_include: [../_base/train_defaults.yaml, ../model/paper.yaml, ../data/pretrain_corpus.yaml, ../data/evals_retrieval.yaml]
+run: {name: stage2_contrastive, dir: runs}
+task: {name: contrastive}
+init_from: {path: runs/stage1_teacher/checkpoints/best.pt, load: [text_encoder]}
+data:
+  batch_size: 64                  # per rank; x grad_accum_steps 8 x world 4 = 2048
+  eval_batch_size: 128
+  one_caption_per_image: true
+  tokenizer: {vi_max_len: 64}
+optim: {lr: 1.0e-4, weight_decay: 0.01, freeze_preset: stage2}
+schedule: {kind: cosine, warmup_ratio: 0.1}
+train:
+  epochs: 5
+  grad_accum_steps: 8
+  amp: {enabled: true, dtype: bf16}
+  log_every: 50
+  early_stopping: {enabled: true, patience: 2}
+eval: {every_steps: null, every_epochs: 1, selection_metric: ktvic_dev/rsum, selection_mode: max}
+checkpoint: {every_steps: null, every_epochs: 1, keep_last_n: 2, save_best: true}
+loss:
+  contrastive: {gather: true, symmetric_reduction: mean}

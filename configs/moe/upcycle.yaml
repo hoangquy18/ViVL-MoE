@@ -1,0 +1,12 @@
+# Sparse upcycling (paper Sec. 5.3): dense Stage-3 checkpoint -> MoE checkpoint.
+#   python scripts/upcycle.py --config configs/moe/upcycle.yaml --out runs/moe_upcycled/upcycled.pt
+# The `model` section is inherited from the dense checkpoint's sidecar (model.from_checkpoint); the MoE
+# topology goes into model_overrides. Noise / seed / output path are CLI flags of scripts/upcycle.py
+# (--noise-std-rel 0.01 --seed 0 --verify-atol 1e-5); the schema has no `upcycle` section.
+# loss.router is included so the upcycled sidecar records the stabilizer switches for sparse_train.yaml.
+_include: [../_base/train_defaults.yaml]
+run: {name: moe_upcycled}
+task: {name: contrastive}
+model: {from_checkpoint: runs/stage3_end2end/checkpoints/best.pt}
+model_overrides:
+  moe: {num_shared: 1, num_routed: 8, top_k: 2, aux_free_bias: true, bias_update_rate: 1.0e-3, bias_update_every: step, router_init_std: 0.02}

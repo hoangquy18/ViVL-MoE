@@ -1,0 +1,7 @@
+# Ablation: N_r = 3 routed experts, top_k 2 (paper Sec. 6.4). Needs its own upcycled checkpoint:
+#   python scripts/upcycle.py --config configs/moe/upcycle.yaml --out runs/moe_upcycled_nr3/upcycled.pt model_overrides.moe.num_routed=3
+_include: [../moe/sparse_train.yaml]
+run: {name: ablation_nr3}
+model: {from_checkpoint: runs/moe_upcycled_nr3/upcycled.pt}
+model_overrides: {moe: {num_routed: 3, top_k: 2}}
+init_from: {path: runs/moe_upcycled_nr3/upcycled.pt, load: [all]}

@@ -1,0 +1,25 @@
+# CPU smoke run for the captioning task: random tiny towers + synthetic image/caption pairs.
+# Standalone (no from_checkpoint / init_from): 4 optimizer steps, eval every 2, beam 2.
+_include: [../_base/train_defaults.yaml, ../model/tiny.yaml]
+run: {name: caption_tiny, dir: runs/_smoke, seed: 0}
+task:
+  name: captioning
+  max_target_len: 12
+  metrics: [bleu4, rougeL]
+  generation: {num_beams: 2, max_new_tokens: 4, min_new_tokens: 1}
+data:
+  train: {kind: synthetic_caption, split: train, options: {num_samples: 16, captions_per_image: 2, image_size: 32, seed: 1}}
+  evals:
+    dev: {kind: synthetic_caption, split: dev, options: {num_samples: 8, captions_per_image: 2, image_size: 32, seed: 1}}
+  batch_size: 2
+  eval_batch_size: 4
+  num_workers: 0
+  pin_memory: false
+  persistent_workers: false
+  tokenizer: {decoder_max_len: 12}
+optim: {lr: 1.0e-3}
+schedule: {kind: cosine, warmup_ratio: 0.25}
+train: {max_steps: 4, grad_accum_steps: 2, amp: {enabled: false}, log_every: 1}
+eval: {every_steps: 2, every_epochs: null, selection_metric: dev/bleu4, selection_mode: max, final_splits: [dev]}
+checkpoint: {every_steps: 2, every_epochs: null, keep_last_n: 1}
+logging: {tensorboard: false}

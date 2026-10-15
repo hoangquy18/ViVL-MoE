@@ -1,0 +1,5 @@
+# Ablation: no auxiliary-loss-free bias (Eq. 21-22 off): plain top-k on z, no balancing at all.
+_include: [../moe/sparse_train.yaml]
+run: {name: ablation_no_auxfree_bias}
+task: {name: contrastive, allow_stabilizer_override: true}
+model_overrides: {moe: {aux_free_bias: false}}

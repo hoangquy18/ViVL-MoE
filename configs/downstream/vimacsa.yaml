@@ -1,0 +1,26 @@
+# ViMACSA multimodal aspect-category sentiment (paper Sec. 6.1 / Table 4; legacy train_macsa.py protocol):
+# 6 aspects x 4 labels, <= 6 images per review, ResNet-152 image aspect tags as second segment, macro-F1.
+_include: [_downstream_defaults.yaml]
+run: {name: vimacsa}
+task:
+  name: vimacsa
+  metrics: [macro_f1]
+  aspects: [Location, Food, Room, Facilities, Service, Public_area]
+  use_image_tags: true
+  max_images: 6
+  legacy_parity: false         # true: pad every aspect sequence to cls_max_len (170) like the legacy code
+  exclude_none_in_f1: false    # legacy protocol keeps the None label in the macro average
+model_overrides: {classifier: {num_labels: 4, num_aspects: 6, pool: mean_joint, dropout: 0.1}}
+data:
+  train:
+    kind: vimacsa
+    root: /data/vimacsa          # verify against the real files (train/dev/test.json, image/, resnet152_image_label.json)
+    split: train
+    text_normalize: vimacsa_legacy
+    options: {reader: pandas, image_aspect_json: resnet152_image_label.json, max_images: 6}
+  evals:
+    dev: {kind: vimacsa, root: /data/vimacsa, split: dev, text_normalize: vimacsa_legacy, options: {reader: pandas, image_aspect_json: resnet152_image_label.json, max_images: 6}}
+    test: {kind: vimacsa, root: /data/vimacsa, split: test, text_normalize: vimacsa_legacy, options: {reader: pandas, image_aspect_json: resnet152_image_label.json, max_images: 6}}
+  tokenizer: {cls_max_len: 170}
+train: {epochs: 20}
+eval: {selection_metric: dev/macro_f1, final_splits: [test]}

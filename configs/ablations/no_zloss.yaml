@@ -1,0 +1,6 @@
+# Ablation: no z-loss (Eq. 20 off). Same upcycled checkpoint; the stabilizer override must be allowed
+# and must also be carried into the downstream configs (paper: stabilizers off in sparse AND downstream).
+_include: [../moe/sparse_train.yaml]
+run: {name: ablation_no_zloss}
+task: {name: contrastive, allow_stabilizer_override: true}
+loss: {router: {use_z: false}}

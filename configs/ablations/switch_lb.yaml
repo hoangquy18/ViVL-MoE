@@ -1,0 +1,6 @@
+# Ablation: Switch-style load-balancing loss (Eq. 19, lambda 0.01) instead of the aux-free bias.
+_include: [../moe/sparse_train.yaml]
+run: {name: ablation_switch_lb}
+task: {name: contrastive, allow_stabilizer_override: true}
+model_overrides: {moe: {aux_free_bias: false}}
+loss: {router: {use_lb: true, lambda_lb: 0.01}}

@@ -1,0 +1,48 @@
+# Shared defaults for every run. Stage configs _include this file first and override what differs.
+run: {name: CHANGE_ME, dir: runs, seed: 42, notes: ""}
+optim:
+  name: adamw
+  lr: 1.0e-4
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+  weight_decay: 0.01            # paper Sec. 6.1
+  groups: []                    # explicit module lists per learning rate (see stage3)
+  freeze: []                    # dotted module paths
+  freeze_preset: null           # stage1 | stage2 | stage3 | sparse | downstream_seq2seq | downstream_cls
+  no_decay_norm_and_bias: true  # follows the legacy code (documented in docs/paper_mapping.md)
+  strict_group_coverage: true
+schedule: {kind: cosine, warmup_ratio: 0.1, warmup_steps: null, min_lr_ratio: 0.0}
+train:
+  max_steps: null               # exactly one of max_steps / epochs
+  epochs: null
+  grad_accum_steps: 1
+  max_grad_norm: 1.0            # legacy-code convention
+  amp: {enabled: true, dtype: bf16}   # disabled automatically on CPU
+  log_every: 50
+  early_stopping: {enabled: false, patience: 3, min_delta: 0.0}
+  deterministic: false
+  cudnn_benchmark: true
+  allow_tf32: true
+  max_consecutive_nonfinite: 5
+eval: {every_steps: null, every_epochs: 1, at_start: false, selection_metric: null, selection_mode: max, final_splits: [], save_predictions: true}
+checkpoint: {every_steps: null, every_epochs: 1, keep_last_n: 2, save_best: true, save_optimizer: last_only, exclude_pristine_frozen_towers: true}
+init_from: null
+logging: {tensorboard: true, wandb: {enabled: false, project: vivlmoe, entity: null, tags: []}, log_grad_norm: true, log_memory: true, log_param_groups: true}
+dist: {backend: auto, find_unused_parameters: false, static_graph: false, broadcast_buffers: false, bucket_cap_mb: 25, timeout_minutes: 30, grad_compression_bf16: false}
+loss:
+  contrastive: {gather: true, symmetric_reduction: mean}
+  router: {lambda_z: 1.0e-3, lambda_mi: 5.0e-3, lambda_lb: 0.0, use_z: true, use_mi: true, use_lb: false, layer_reduction: mean}
+analysis: {routing_probe: null}
+data:
+  train: null
+  evals: {}
+  batch_size: 32                # per-rank micro-batch; effective = batch_size x grad_accum_steps x world_size
+  eval_batch_size: 64
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+  one_caption_per_image: true
+  tokenizer: {vi_max_len: 64, en_max_len: 77, decoder_max_len: 64, cls_max_len: 170}
+  transform: {source: clip_processor, size: null, crop_size: null, augment: none, draft_decode: true}
+  vision_features: {mode: disabled, dir: cache/vision_features}

@@ -1,0 +1,24 @@
+# Image-caption pretraining corpus for Stages 2/3 and sparse training (paper Sec. 4.2-4.3).
+#
+# One JSONL line per caption, built once from the raw dump in dataset/ by
+#     python scripts/build_pretrain_corpus.py      (see docs/runbook.md, section 2.2)
+# filtered_data.json (Vietnamese: COCO-vi, localization, ViOCRVQA, Oxford-102, EVJVQA, ViVQA, ...)
+# + english.jsonl, with image paths relative to `root` and the ViMMU-Bench evaluation images removed
+# (decontamination report: dataset/corpus/pretrain_corpus.report.json). The legacy HF copy
+# nhq188/moe-dataset-2 is the same images re-uploaded, so it is not mixed in again.
+#
+# `root` is relative to the working directory (run from the repository root); on the GPU box pass
+# data.train.root=/abs/path/to/dataset. image_check: decode with a manifest cache so the 1.3M-caption
+# validation runs once per machine (scripts/build_manifest.py); undecodable images are dropped and
+# listed under <run_dir>/manifests/, never substituted.
+data:
+  train:
+    kind: jsonl
+    split: train
+    root: dataset
+    splits: {train: {file: corpus/pretrain_corpus.jsonl, image_root: .}}
+    image_check: decode
+    missing_image_policy: skip
+    text_normalize: pretrain
+    manifest_cache: cache/manifests
+    options: {image_key: image, caption_key: caption}

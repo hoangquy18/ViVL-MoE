@@ -1,0 +1,10 @@
+# CPU smoke: upcycle the tiny Stage-3 checkpoint into a 1 + 4 (top-2) MoE (paper Sec. 5.3).
+#   python scripts/upcycle.py --config configs/_smoke/upcycle_tiny.yaml --out runs/_smoke/upcycle_tiny/upcycled.pt
+# The dense checkpoint is model.from_checkpoint (override on the CLI: model.from_checkpoint=<path>) or --dense.
+# The model section is inherited from that checkpoint's sidecar; the MoE topology lives in model_overrides.
+_include: [../_base/train_defaults.yaml]
+run: {name: upcycle_tiny, dir: runs/_smoke}
+task: {name: contrastive}
+model: {from_checkpoint: runs/_smoke/stage3_tiny/checkpoints/best.pt}
+model_overrides:
+  moe: {num_shared: 1, num_routed: 4, top_k: 2, aux_free_bias: true, bias_update_rate: 1.0e-2, bias_update_every: step}

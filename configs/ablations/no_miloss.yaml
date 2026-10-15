@@ -1,0 +1,5 @@
+# Ablation: no modality-importance loss (Eq. 24 off).
+_include: [../moe/sparse_train.yaml]
+run: {name: ablation_no_miloss}
+task: {name: contrastive, allow_stabilizer_override: true}
+loss: {router: {use_mi: false}}

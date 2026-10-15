@@ -1,0 +1,34 @@
+# CPU smoke: Stage 2 contrastive on synthetic image-text pairs, text tower initialised from the Stage-1
+# smoke run (init_from text_encoder). 64 captions over 32 images -> one caption per image per epoch ->
+# 8 micro-batches of 4, accum 2 -> 4 steps/epoch; max_steps 4 = 1 epoch.
+_include: [../_base/train_defaults.yaml, ../model/tiny.yaml]
+run: {name: stage2_tiny, dir: runs/_smoke, seed: 7}
+task: {name: contrastive}
+init_from: {path: runs/_smoke/stage1_tiny/checkpoints/best.pt, load: [text_encoder]}
+data:
+  train:
+    kind: synthetic_pairs
+    split: train
+    root: runs/_smoke/synthetic_data
+    options: {num_samples: 64, captions_per_image: 2, image_size: 32, seed: 1}
+  evals:
+    ktvic_dev:
+      kind: synthetic_pairs
+      split: dev
+      root: runs/_smoke/synthetic_data
+      options: {num_samples: 8, captions_per_image: 2, image_size: 32, seed: 1}
+    uitviic_dev:
+      kind: synthetic_pairs
+      split: dev
+      root: runs/_smoke/synthetic_data
+      options: {num_samples: 6, captions_per_image: 3, image_size: 32, seed: 2}
+  batch_size: 4
+  eval_batch_size: 4
+  num_workers: 0
+  tokenizer: {vi_max_len: 16}
+optim: {lr: 1.0e-3, freeze_preset: stage2}
+schedule: {kind: cosine, warmup_ratio: 0.25}
+train: {max_steps: 4, epochs: null, grad_accum_steps: 2, amp: {enabled: false}, log_every: 1}
+eval: {every_steps: 2, every_epochs: null, selection_metric: ktvic_dev/rsum, selection_mode: max}
+checkpoint: {every_steps: 2, every_epochs: null, keep_last_n: 2, save_best: true}
+logging: {tensorboard: false}

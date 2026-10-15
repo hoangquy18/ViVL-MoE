@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+# top-level data / output folders (anchored so vivlmoe/models/ and tests/unit/models/ are tracked)
+/build/
+/dist/
+/runs/
+/dataset/
+/cache/
+/models/
+*.pt
+*.safetensors
+*.log
+.DS_Store

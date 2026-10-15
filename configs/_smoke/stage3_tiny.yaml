@@ -1,0 +1,11 @@
+# CPU smoke: Stage 3 end-to-end (ViT trainable) from the Stage-2 smoke checkpoint (load all), with the
+# paper's two lr groups. The vision tower is marked `trained` and included in every checkpoint.
+_include: [stage2_tiny.yaml]
+run: {name: stage3_tiny, dir: runs/_smoke, seed: 7}
+init_from: {path: runs/_smoke/stage2_tiny/checkpoints/best.pt, load: [all]}
+optim:
+  freeze_preset: stage3
+  freeze: []
+  groups:
+    - {name: encoders, modules: [vision_encoder, text_encoder, encoder], lr: 1.0e-4}
+    - {name: projections, modules: [vision_proj, text_proj, resampler, modality_embed, logit_scale], lr: 5.0e-4}

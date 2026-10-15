@@ -1,0 +1,24 @@
+# OpenViVQA (open-ended answers): ROUGE-L + CIDEr, up to 64 generated tokens.
+# Assumed layout (verify against the real files): {annotations: {id: {image_id, question, answers: [...]}},
+# images: {image_id: {filename}}} per split json, images under images/.
+_include: [vqa_generic.yaml]
+run: {name: openvivqa}
+task:
+  metrics: [rougeL, cider]
+  max_target_len: 64
+  generation: {num_beams: 5, max_new_tokens: 64, min_new_tokens: 0, length_penalty: 1.0, early_stopping: false}   # HF-parity: the paper only states beam 5
+data:
+  train:
+    kind: vqa_generic
+    root: /data/openvivqa
+    split: train
+    splits:
+      train: {file: vlsp2023_train_data.json, image_root: training-images}
+      dev: {file: vlsp2023_dev_data.json, image_root: dev-images}
+      test: {file: vlsp2023_test_data.json, image_root: test-images}
+    options: {format: json, records_path: annotations, image_key: image_id, question_key: question, answers_key: answers, image_lookup: {table_path: images, filename_key: filename}}
+  evals:
+    dev: {kind: vqa_generic, root: /data/openvivqa, split: dev, splits: {dev: {file: vlsp2023_dev_data.json, image_root: dev-images}}, options: {format: json, records_path: annotations, image_key: image_id, question_key: question, answers_key: answers, image_lookup: {table_path: images, filename_key: filename}}}
+    test: {kind: vqa_generic, root: /data/openvivqa, split: test, splits: {test: {file: vlsp2023_test_data.json, image_root: test-images}}, options: {format: json, records_path: annotations, image_key: image_id, question_key: question, answers_key: answers, image_lookup: {table_path: images, filename_key: filename}}}
+  tokenizer: {decoder_max_len: 64}
+eval: {selection_metric: dev/rougeL, final_splits: [test]}

@@ -1,0 +1,16 @@
+# Machine-specific dataset roots (this Mac = the legacy checkout under /Users/gos/Documents/Moe/moe).
+# Edit this file per machine; the semantic definition of each split (kind, split name, holdout id
+# list, image checks) lives in configs/data/*.yaml, which _include this file and deep-merge on top.
+#
+# There is no interpolation engine: the entries below are *partial* DataSourceCfg mappings that
+# only carry `root`. They are completed by configs/data/evals_retrieval.yaml (ktvic_dev, uitviic_dev)
+# - never _include this file on its own, and never from a config that must not evaluate retrieval
+# (deep-merge cannot remove a split; a task that cannot evaluate one raises a ConfigError).
+#
+# Roots that cannot live here because deep-merge would leak them into every stage:
+#   PhoMT (Stage 1 train + phomt_dev):  dataset/PhoMT   (configs/pretrain/stage1_teacher.yaml)
+#   pretraining corpus (Stages 2/3):     dataset/ (configs/data/pretrain_corpus.yaml, built by scripts/build_pretrain_corpus.py)
+data:
+  evals:
+    ktvic_dev:   {root: /Users/gos/Documents/Moe/moe/ktvic_dataset}              # train_data.json + train-images/
+    uitviic_dev: {root: /Users/gos/Documents/Moe/moe/uit-vilc/uitvic_dataset}    # uitvic_captions_train2017.json + coco_uitvic_train/coco_uitvic_train/

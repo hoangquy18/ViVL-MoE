@@ -1,0 +1,23 @@
+# Stage 3 - end-to-end fine-tuning (paper Sec. 4.3): everything trainable, incl. the ViT and W_v,
+# starting from the Stage-2 best checkpoint (load all). Two learning rates: 1e-5 for the encoders
+# (ViT, XLM-R, f_enc) and 5e-5 for the projections / resampler / modality embeddings / tau.
+# Effective batch = 32 x accum 16 x 4 GPUs = 2048; gradient checkpointing in both towers keeps
+# ViT-H @378 trainable at 32 per GPU. From here on the vision tower's provenance is `trained`, so every
+# later checkpoint carries it (plan decision 13).
+_include: [stage2_contrastive.yaml]
+run: {name: stage3_end2end, dir: runs}
+init_from: {path: runs/stage2_contrastive/checkpoints/best.pt, load: [all]}
+model:
+  vision: {gradient_checkpointing: true}
+  text: {gradient_checkpointing: true}
+data: {batch_size: 32}            # per rank; x grad_accum_steps 16 x world 4 = 2048
+optim:
+  freeze_preset: stage3           # nothing frozen
+  freeze: []
+  groups:
+    - {name: encoders, modules: [vision_encoder, text_encoder, encoder], lr: 1.0e-5}
+    - {name: projections, modules: [vision_proj, text_proj, resampler, modality_embed, logit_scale], lr: 5.0e-5}
+train:
+  epochs: 3
+  grad_accum_steps: 16
+  early_stopping: {enabled: true, patience: 2}

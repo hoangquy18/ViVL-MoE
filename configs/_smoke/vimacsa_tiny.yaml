@@ -1,0 +1,27 @@
+# CPU smoke run for ViMACSA: random tiny towers + synthetic multi-image aspect-sentiment records.
+_include: [../_base/train_defaults.yaml, ../model/tiny.yaml]
+run: {name: vimacsa_tiny, dir: runs/_smoke, seed: 0}
+task:
+  name: vimacsa
+  metrics: [macro_f1]
+  aspects: [Location, Food, Room, Facilities, Service, Public_area]
+  use_image_tags: true
+  max_images: 3
+  legacy_parity: false
+  exclude_none_in_f1: false
+data:
+  train: {kind: synthetic_vimacsa, split: train, options: {num_samples: 16, max_images: 3, image_size: 32, seed: 3}}
+  evals:
+    dev: {kind: synthetic_vimacsa, split: dev, options: {num_samples: 8, max_images: 3, image_size: 32, seed: 3}}
+  batch_size: 2
+  eval_batch_size: 4
+  num_workers: 0
+  pin_memory: false
+  persistent_workers: false
+  tokenizer: {cls_max_len: 32}
+optim: {lr: 1.0e-3}
+schedule: {kind: cosine, warmup_ratio: 0.25}
+train: {max_steps: 4, grad_accum_steps: 2, amp: {enabled: false}, log_every: 1}
+eval: {every_steps: 2, every_epochs: null, selection_metric: dev/macro_f1, selection_mode: max, final_splits: [dev]}
+checkpoint: {every_steps: 2, every_epochs: null, keep_last_n: 1}
+logging: {tensorboard: false}

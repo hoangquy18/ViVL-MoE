@@ -1,0 +1,21 @@
+# Retrieval dev splits used for model selection during pretraining (paper Appendix A: 20 % holdouts of
+# the KTVIC and UIT-ViIC train sets by image id). Roots come from configs/_base/data_paths.yaml; the
+# committed id lists under configs/data/splits/ make the holdout identical on every machine (their sha1
+# is stored in every checkpoint as dev_split_sha1).
+_include: [../_base/data_paths.yaml]
+data:
+  evals:
+    ktvic_dev:
+      kind: ktvic
+      split: dev
+      image_check: exists
+      missing_image_policy: error          # a benchmark image may never be silently dropped
+      text_normalize: none
+      holdout: {from_split: train, to_split: dev, ids_file: configs/data/splits/ktvic_dev_image_ids.json}
+    uitviic_dev:
+      kind: uitviic
+      split: dev
+      image_check: exists
+      missing_image_policy: error
+      text_normalize: none
+      holdout: {from_split: train, to_split: dev, ids_file: configs/data/splits/uitviic_dev_image_ids.json}

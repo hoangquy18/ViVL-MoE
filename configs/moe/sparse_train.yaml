@@ -1,0 +1,15 @@
+# Sparse MoE pretraining (paper Sec. 5.4): 20K steps, lr 1e-5, 128 x accum 4 x 4 GPUs = 2048, ViT frozen.
+# Train corpus and retrieval dev splits come from configs/data/{pretrain_corpus,evals_retrieval}.yaml.
+_include: [../_base/train_defaults.yaml, ../_base/data_paths.yaml, ../data/pretrain_corpus.yaml, ../data/evals_retrieval.yaml]
+run: {name: moe_sparse}
+task: {name: contrastive}
+model: {from_checkpoint: runs/moe_upcycled/upcycled.pt}     # inherits the MoE topology + stabilizers
+init_from: {path: runs/moe_upcycled/upcycled.pt, load: [all]}
+optim: {lr: 1.0e-5, freeze_preset: sparse}                  # sparse: vision_encoder frozen
+data: {batch_size: 128}
+train: {max_steps: 20000, grad_accum_steps: 4}
+eval: {every_steps: 500, every_epochs: null, selection_metric: ktvic_dev/rsum}
+checkpoint: {every_steps: 1000, every_epochs: null, keep_last_n: 3}
+loss:
+  router: {lambda_z: 1.0e-3, lambda_mi: 5.0e-3, lambda_lb: 0.0, use_z: true, use_mi: true, use_lb: false, layer_reduction: mean}
+analysis: {routing_probe: {split: ktvic_dev, every_steps: 500}}

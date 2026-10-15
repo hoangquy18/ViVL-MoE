@@ -1,0 +1,6 @@
+# Small backbone for CPU smoke tests with the locally cached models (50 vision tokens x 768, d_t 768, teacher dim 512).
+_include: [paper.yaml]
+model:
+  vision: {name: openai/clip-vit-base-patch32}
+  text: {name: FacebookAI/xlm-roberta-base}
+  generation: {name: VietAI/vit5-base}

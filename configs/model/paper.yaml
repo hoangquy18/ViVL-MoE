@@ -1,0 +1,16 @@
+# Paper-scale backbone (Sec. 4-5): frozen CLIP ViT-H/14 DFN @378px + XLM-RoBERTa-large + resampler + 12-layer f_enc.
+# Expected at build: 730 vision tokens x 1280, d_t 1024, teacher dim 1024.
+model:
+  vision: {name: apple/DFN5B-CLIP-ViT-H-14-378, pretrained: true, tiny_config: null, apply_post_layernorm: false, frozen_dtype: auto, gradient_checkpointing: false}
+  text: {name: FacebookAI/xlm-roberta-large, pretrained: true, tiny_config: null, gradient_checkpointing: false}
+  resampler: {num_latents: 64, depth: 2, heads: 8, dim_head: 64, ff_mult: 4, dropout: 0.1, concat_latents_to_kv: false}
+  encoder: {dim: 768, num_layers: 12, heads: 12, ffn_dim: 3072, dropout: 0.1, attn_dropout: 0.1, ffn_inner_dropout: 0.1, ln_eps: 1.0e-5}
+  moe: null
+  stage1: {teacher_target: projected, loss_preset: eq12, fc1_hidden: null, teacher_tiny_config: null}
+  generation: {name: VietAI/vit5-large, pretrained: true, tiny_config: null, bridge_norm: false, gradient_checkpointing: false}
+  classifier: {num_labels: 4, num_aspects: 6, pool: mean_joint, dropout: 0.1}
+  init_std: 0.02
+  logit_scale_init: 0.07
+  logit_scale_max: 100.0
+  modality_embed_in_single_pass: true
+  from_checkpoint: null

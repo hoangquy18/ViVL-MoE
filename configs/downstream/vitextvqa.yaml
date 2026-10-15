@@ -1,0 +1,21 @@
+# ViTextVQA (scene-text short answers): token-F1 + EM.
+# Assumed layout (verify against the real files): {annotations: [{id, image_id, question, answers}], images: [{id, filename}]}.
+_include: [vqa_generic.yaml]
+run: {name: vitextvqa}
+task:
+  metrics: [f1, em]
+  generation: {num_beams: 5, max_new_tokens: 24, min_new_tokens: 0, length_penalty: 1.0, early_stopping: false}   # HF-parity: the paper only states beam 5
+data:
+  train:
+    kind: vqa_generic
+    root: /data/vitextvqa
+    split: train
+    splits:
+      train: {file: ViTextVQA_train.json, image_root: images}
+      dev: {file: ViTextVQA_dev.json, image_root: images}
+      test: {file: ViTextVQA_test.json, image_root: images}
+    options: {format: json, records_path: annotations, id_key: id, image_key: image_id, question_key: question, answers_key: answers, image_lookup: {table_path: images, id_key: id, filename_key: filename}}
+  evals:
+    dev: {kind: vqa_generic, root: /data/vitextvqa, split: dev, splits: {dev: {file: ViTextVQA_dev.json, image_root: images}}, options: {format: json, records_path: annotations, id_key: id, image_key: image_id, question_key: question, answers_key: answers, image_lookup: {table_path: images, id_key: id, filename_key: filename}}}
+    test: {kind: vqa_generic, root: /data/vitextvqa, split: test, splits: {test: {file: ViTextVQA_test.json, image_root: images}}, options: {format: json, records_path: annotations, id_key: id, image_key: image_id, question_key: question, answers_key: answers, image_lookup: {table_path: images, id_key: id, filename_key: filename}}}
+eval: {selection_metric: dev/f1, final_splits: [test]}

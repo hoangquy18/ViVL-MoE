@@ -1,0 +1,19 @@
+# Base for the VQA datasets (paper Sec. 6.1 / Table 3): image + question joint pass -> ViT5 answer.
+# Dataset overlays set data.* (vqa_generic layout options, plan 8.2 - verify against the real files),
+# task.metrics and task.generation.
+_include: [_downstream_defaults.yaml]
+run: {name: vqa_generic}
+task:
+  name: vqa
+  max_source_len: 64
+  max_target_len: 32
+  prompt_template: "{question}"
+  train_on_all_answers: false
+  metrics: [rougeL]
+  metric_tokenizer: {mode: vi_safe, lowercase: true, nfc: true, strip_punct: true}
+  generation: {num_beams: 5, max_new_tokens: 24, min_new_tokens: 0, length_penalty: 1.0, early_stopping: false}   # HF-parity: the paper only states beam 5
+data:
+  train: null                  # set by the dataset overlay
+  evals: {}
+  tokenizer: {vi_max_len: 64, decoder_max_len: 32}
+eval: {selection_metric: dev/rougeL, final_splits: [test]}

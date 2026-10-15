@@ -1,0 +1,16 @@
+# Random tiny towers built from HF config classes: no downloads, for unit tests and the CPU smoke chain.
+_include: [paper.yaml]
+model:
+  vision:
+    pretrained: false
+    tiny_config: {hidden_size: 32, intermediate_size: 64, num_hidden_layers: 2, num_attention_heads: 4, image_size: 32, patch_size: 16, projection_dim: 16}
+  text:
+    pretrained: false
+    tiny_config: {vocab_size: 1000, hidden_size: 32, num_hidden_layers: 2, num_attention_heads: 4, intermediate_size: 64, max_position_embeddings: 130, pad_token_id: 1, bos_token_id: 0, eos_token_id: 2}
+  resampler: {num_latents: 8, depth: 1, heads: 2, dim_head: 16, ff_mult: 2}
+  encoder: {dim: 32, num_layers: 2, heads: 4, ffn_dim: 64}
+  stage1:
+    teacher_tiny_config: {vocab_size: 1000, hidden_size: 32, intermediate_size: 64, num_hidden_layers: 2, num_attention_heads: 4, projection_dim: 16, max_position_embeddings: 77, eos_token_id: 2}
+  generation:
+    pretrained: false
+    tiny_config: {vocab_size: 1000, d_model: 32, d_ff: 64, d_kv: 8, num_layers: 2, num_decoder_layers: 2, num_heads: 4, decoder_start_token_id: 0, pad_token_id: 0, eos_token_id: 1}

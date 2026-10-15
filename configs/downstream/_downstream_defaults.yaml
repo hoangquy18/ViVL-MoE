@@ -1,0 +1,21 @@
+# Shared downstream fine-tuning defaults (paper Sec. 6.1): AdamW lr 3e-5, global batch 32
+# (8 per GPU x 4 GPUs x accum 1), cosine with 10 % warmup, early stopping on dev, official test splits,
+# routing analysis on dev for the first 5K steps (Sec. 6.5). Task/data sections come from the per-dataset file.
+# Evaluation / early stopping are epoch-based; the routing probe runs on its own step cadence
+# (Trainer._run_routing_probe every analysis.routing_probe.every_steps, first max_steps steps), so it
+# does not depend on eval.every_steps.
+# NOTE: configs/_base/data_paths.yaml is deliberately NOT included: it carries partial retrieval
+# eval entries (ktvic_dev / uitviic_dev, root only) that only validate together with
+# configs/data/evals_retrieval.yaml. Downstream roots live in each per-dataset file instead.
+_include: [../_base/train_defaults.yaml]
+# The model section is inherited from the pretrained checkpoint (MoE topology + stabiliser switches);
+# override with a dense checkpoint (runs/stage3_end2end/checkpoints/best.pt) for the dense baseline.
+model: {from_checkpoint: runs/moe_sparse/checkpoints/best.pt}
+init_from: {path: runs/moe_sparse/checkpoints/best.pt, load: [all]}
+optim: {lr: 3.0e-5, weight_decay: 0.01, freeze: [], freeze_preset: null}   # task presets freeze the ViT (+ logit_scale)
+schedule: {kind: cosine, warmup_ratio: 0.1}
+train: {epochs: 10, grad_accum_steps: 1, amp: {enabled: true, dtype: bf16}, log_every: 20, early_stopping: {enabled: true, patience: 3}}
+eval: {every_epochs: 1, every_steps: null, selection_mode: max, save_predictions: true}
+checkpoint: {every_epochs: 1, every_steps: null, keep_last_n: 2, save_best: true, save_optimizer: last_only}
+analysis: {routing_probe: {split: dev, every_steps: 500, max_steps: 5000}}
+data: {batch_size: 8, eval_batch_size: 32, num_workers: 8}

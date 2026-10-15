@@ -1,0 +1,28 @@
+# Stage 1 - teacher learning (paper Sec. 4.1, Eq. 12): XLM-R <s> -> FC1 aligned to the frozen CLIP text
+# encoder on 2M PhoMT pairs. Effective batch = 128 (per GPU) x accum 4 x 4 GPUs = 2048 (paper: 512 x 4).
+# Model selection: teacher MSE on PhoMT dev (min); Appendix-A retrieval in CLIP space on the KTVIC /
+# UIT-ViIC dev holdouts is logged as a sanity check (task.eval_clip_retrieval).
+_include: [../_base/train_defaults.yaml, ../model/paper.yaml, ../data/evals_retrieval.yaml]
+run: {name: stage1_teacher, dir: runs}
+task: {name: stage1_teacher, eval_clip_retrieval: true}
+data:
+  train:
+    kind: phomt
+    split: train
+    root: dataset/PhoMT           # relative to the repo root; GPU box: PHOMT_ROOT / data.train.root
+    options: {variant: detokenization, max_train_samples: 2000000, subset_strategy: head}   # raw text, first 2M of 2.98M pairs
+  evals:
+    phomt_dev: {kind: phomt, split: dev, root: dataset/PhoMT, options: {variant: detokenization}}
+  batch_size: 128                 # per rank; x grad_accum_steps 4 x world 4 = 2048
+  eval_batch_size: 256
+  tokenizer: {vi_max_len: 64, en_max_len: 77}
+optim: {lr: 1.0e-4, weight_decay: 0.01, freeze_preset: stage1}   # stage1 preset: text_encoder + fc1 trainable
+schedule: {kind: cosine, warmup_ratio: 0.1}
+train:
+  epochs: 3
+  grad_accum_steps: 4
+  amp: {enabled: true, dtype: bf16}
+  log_every: 50
+  early_stopping: {enabled: true, patience: 2}
+eval: {every_steps: 1000, every_epochs: null, selection_metric: phomt_dev/mse, selection_mode: min}
+checkpoint: {every_steps: 1000, every_epochs: null, keep_last_n: 2, save_best: true}

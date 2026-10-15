@@ -1,0 +1,27 @@
+# KTVIC captioning (paper Sec. 6.1 / Table 2): image-only joint pass -> ViT5 decoder, beam 5.
+# dev = the committed 20 % holdout of train (Appendix A); test = the official public test split.
+_include: [_downstream_defaults.yaml]
+run: {name: ktvic_caption}
+task:
+  name: captioning
+  max_target_len: 48
+  metrics: [bleu4, rougeL]
+  bleu_tokenizer: "13a"
+  metric_tokenizer: {mode: vi_safe, lowercase: true, nfc: true, strip_punct: true}
+  report_paper_compat_rouge: true
+  generation: {num_beams: 5, max_new_tokens: 40, min_new_tokens: 0, length_penalty: 1.0, early_stopping: false}   # HF-parity: the paper only states beam 5
+data:
+  train:
+    kind: ktvic
+    root: /Users/gos/Documents/Moe/moe/ktvic_dataset   # this Mac (see _base/data_paths.yaml); train_data.json, train-images/, test_data.json, public-test-images/
+    split: train
+    holdout: {from_split: train, to_split: dev, ids_file: configs/data/splits/ktvic_dev_image_ids.json}
+  evals:
+    dev:
+      kind: ktvic
+      root: /Users/gos/Documents/Moe/moe/ktvic_dataset
+      split: dev
+      holdout: {from_split: train, to_split: dev, ids_file: configs/data/splits/ktvic_dev_image_ids.json}
+    test: {kind: ktvic, root: /Users/gos/Documents/Moe/moe/ktvic_dataset, split: test}
+  tokenizer: {decoder_max_len: 48}
+eval: {selection_metric: dev/bleu4, final_splits: [test]}

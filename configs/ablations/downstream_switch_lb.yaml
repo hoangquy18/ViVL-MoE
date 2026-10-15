@@ -1,0 +1,11 @@
+# Downstream run from the 'switch_lb' ablation checkpoint (paper Sec. 6.4: a removed stabilizer stays off
+# downstream). Target dataset: KTVIC captioning; for another dataset copy this file and change the
+# `_include` (e.g. ../downstream/openvivqa.yaml) - `_include` cannot be set from the command line.
+# The stabilizer switches are restated explicitly so the loader's guard verifies them against the
+# checkpoint sidecar; no task.allow_stabilizer_override is needed (and none is set, so a mismatch is loud).
+_include: [../downstream/ktvic_caption.yaml]
+run: {name: ktvic_caption_switch_lb}
+model: {from_checkpoint: runs/ablation_switch_lb/checkpoints/best.pt}
+init_from: {path: runs/ablation_switch_lb/checkpoints/best.pt, load: [all]}
+model_overrides: {moe: {aux_free_bias: false}}
+loss: {router: {use_lb: true, lambda_lb: 0.01}}
