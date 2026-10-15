@@ -29,5 +29,8 @@ if [ "${DRY_RUN:-0}" != 1 ]; then
   need "$KTVIC_ROOT/train_data.json" "KTVIC"
   need "$UITVIIC_ROOT" "UIT-ViIC"
   log "corpus: $(wc -l < "$DATA_ROOT/corpus/pretrain_corpus.jsonl") caption (đúng là 1113113)"
+  left=$(df -Pk "$DATA_DIR" | awk 'NR == 2 {print int($4 / 1048576)}')
+  log "còn trống ${left} GB. Các bước sau cần thêm ~17 GB model + ~30 GB checkpoint (chạy thử rồi chạy thật)"
+  [ "$left" -ge 50 ] || log "CẢNH BÁO: không đủ đĩa cho các bước sau nếu model và runs/ nằm cùng ổ (df -h /workspace ~/.cache)"
 fi
 log "xong bước 1. Tiếp theo: bash scripts/gpu/2_fetch_models.sh"

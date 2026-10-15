@@ -3,7 +3,8 @@
 # bắt lỗi đường dẫn, hết bộ nhớ (OOM), config trước khi chạy thật. Khoảng 30-60 phút.
 #
 #   bash scripts/gpu/4_preflight.sh            # bước đã xong ở lần trước được bỏ qua
-#   bash scripts/gpu/4_preflight.sh --fresh    # xoá runs_preflight/ (chỉ là kết quả chạy thử) rồi chạy lại
+#   bash scripts/gpu/4_preflight.sh --fresh    # xoá runs_preflight/ của lần chạy thử bị lỗi rồi chạy lại
+# Thành công thì runs_preflight/ tự bị xoá (giữ lại: KEEP_PREFLIGHT=1); log: logs/4_preflight.log.
 # Batch mỗi GPU tự chỉnh theo số GPU và bộ nhớ (pretrain_overrides trong env.sh). Vẫn OOM: ghi đè bằng EXTRA
 # (đặt sau nên thắng), ví dụ EXTRA="data.batch_size=64 train.grad_accum_steps=4", rồi chạy lại với --fresh.
 source "$(dirname "$0")/env.sh"
@@ -16,4 +17,10 @@ batch=$(pretrain_overrides)
 log "batch theo phần cứng: ${batch:-theo config}"
 run env RUN_DIR=runs_preflight PREFLIGHT=1 PIPELINE=v2 EXTRA="$batch ${EXTRA:-}" bash scripts/run_pretrain.sh \
   2>&1 | tee -a "$LOG_DIR/4_preflight.log"
+# Chạy thử đã qua (set -e: tới được đây là mọi bước đều xong): runs_preflight/ chỉ chiếm đĩa (checkpoint cỡ
+# chục GB), toàn bộ output đã nằm trong $LOG_DIR/4_preflight.log. KEEP_PREFLIGHT=1 để giữ lại.
+if [ "${DRY_RUN:-0}" != 1 ] && [ "${KEEP_PREFLIGHT:-0}" != 1 ] && [ -d runs_preflight ]; then
+  log "chạy thử thành công: xoá runs_preflight/ ($(du -sh runs_preflight | cut -f1)) để giải phóng đĩa"
+  rm -rf runs_preflight
+fi
 log "xong bước 4 (log: $LOG_DIR/4_preflight.log). Tiếp theo, trong tmux: bash scripts/gpu/5_pretrain.sh"

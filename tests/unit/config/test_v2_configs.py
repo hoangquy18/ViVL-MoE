@@ -54,6 +54,7 @@ def test_distill_and_align_configs() -> None:
     assert a.init_from.path == "runs/v2_distill_text/checkpoints/best.pt"
     assert a.data.transform.source == "tower" and a.model.contrastive_head == "sigmoid"
     assert (a.data.batch_size, a.train.grad_accum_steps) == (256, 2)  # one A40: 512 per step
+    assert d.checkpoint.keep_last_n == a.checkpoint.keep_last_n == 1  # disk: AdamW state per file
     # the groups cover every trainable v2 backbone parameter (strict coverage)
     model = build_task_model("backbone", load_model_cfg(V2_TINY))
     apply_freeze(model, freeze_paths_for_preset(model, a.optim.freeze_preset))
@@ -88,6 +89,7 @@ def test_upcycle_and_sparse_configs(tmp_path: Path) -> None:
     assert sp.run.name == "v2_moe_sparse" and sp.optim.lr == 1.0e-5 and sp.train.max_steps == 6000
     assert sp.data.transform.source == "tower" and sp.optim.freeze_preset == "sparse"
     assert (sp.data.batch_size, sp.train.grad_accum_steps) == (256, 2)
+    assert sp.checkpoint.keep_last_n == 1
     assert sp.model.text.gradient_checkpointing and sp.model.moe is not None  # override + inherited
 
 

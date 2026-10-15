@@ -25,6 +25,7 @@ export HF_EXTRAS_REPO=${HF_EXTRAS_REPO:-nhq188/vivlmoe-pretrain-extras}  # PhoMT
 export HF_HUB_DISABLE_XET=${HF_HUB_DISABLE_XET:-0}
 export HF_HUB_DOWNLOAD_TIMEOUT=${HF_HUB_DOWNLOAD_TIMEOUT:-60}       # giây chờ mỗi lần đọc (mặc định HF: 10)
 export PULL_WORKERS=${PULL_WORKERS:-4}                            # số shard tải song song ở bước 1
+export HF_XET_CHUNK_CACHE_SIZE_BYTES=${HF_XET_CHUNK_CACHE_SIZE_BYTES:-0}  # tắt chunk cache Xet (mặc định 10 GB)
 
 # ---------------------------------------------------------------- môi trường, run, log
 export VENV=${VENV:-$REPO/.venv}

@@ -28,4 +28,5 @@ train:
   log_every: 50
   early_stopping: {enabled: true, patience: 2}
 eval: {every_steps: null, every_epochs: 1, selection_metric: ktvic_dev/rsum, selection_mode: max}
-checkpoint: {every_steps: null, every_epochs: 1, keep_last_n: 2, save_best: true}
+# keep_last_n 1: each kept step checkpoint carries the AdamW state (rented disks are small); best.pt stays
+checkpoint: {every_steps: null, every_epochs: 1, keep_last_n: 1, save_best: true}
