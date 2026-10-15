@@ -197,6 +197,27 @@ def v2_revisions() -> dict[str, str | None]:
     return {vision.name: vision.revision}
 
 
+V2_MODEL_CFG = REPO_ROOT / "configs" / "model" / "v2.yaml"
+
+
+def pin_revision(cfg_path: Path, name: str, commit: str) -> str:
+    """Write ``commit`` as the vision ``revision`` of ``name`` in ``cfg_path`` when it is still null."""
+    import re
+
+    text = cfg_path.read_text(encoding="utf-8")
+    m = re.search(rf"name: {re.escape(name)}, revision: ([^,}}\s]+)", text)
+    if m is None:
+        raise SystemExit(f"{cfg_path}: no 'name: {name}, revision: ...' entry to pin")
+    if m.group(1) == "null":
+        cfg_path.write_text(
+            text.replace(m.group(0), m.group(0).replace("null", commit)), encoding="utf-8"
+        )
+        return f"pinned {name} revision {commit} in {cfg_path} (commit + push this change)"
+    if m.group(1) != commit:
+        return f"{cfg_path} pins {name} at {m.group(1)}, fetched {commit}"
+    return f"{name} already pinned at {commit}"
+
+
 def _check_weights(snap: Path, name: str) -> str | None:
     """``name`` (single file) or ``name + '.index.json'`` with every shard present, else None."""
     index = snap / f"{name}.index.json"
@@ -261,6 +282,11 @@ def main() -> int:
         default="all",
         help="all = small + paper; v2-pretrain = the v2 models the pretraining chain loads",
     )
+    parser.add_argument(
+        "--pin",
+        action="store_true",
+        help="v2: write the fetched C-RADIO commit into configs/model/v2.yaml if its revision is null",
+    )
     parser.add_argument("--models-dir", default=str(REPO_ROOT / "models"))
     parser.add_argument(
         "--keep-bin", action="store_true", help="keep pytorch_model.bin after conversion"
@@ -278,9 +304,11 @@ def main() -> int:
             for hf_id, kind, _ in MODELS[group]:
                 commits[hf_id] = fetch_v2(hf_id, kind, revisions.get(hf_id))
             for hf_id, rev in revisions.items():
-                if rev is None:
+                if args.pin:
+                    print("  " + pin_revision(V2_MODEL_CFG, hf_id, commits[hf_id]))
+                elif rev is None:
                     print(
-                        f"  pin it: model.vision.revision: {commits[hf_id]} (configs/model/v2.yaml)"
+                        f"  pin it: model.vision.revision: {commits[hf_id]} (or rerun with --pin)"
                     )
             continue
         for hf_id, kind, needs_conversion in MODELS[group]:

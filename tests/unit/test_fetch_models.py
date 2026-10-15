@@ -88,3 +88,23 @@ def test_pretraining_group_is_part_of_v2(monkeypatch: pytest.MonkeyPatch) -> Non
         "google/siglip2-giant-opt-patch16-384",
     }
     assert pretrain < {m[0] for m in mod.MODELS["v2"]}
+
+
+def test_pin_revision_writes_the_fetched_commit_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mod = _load(monkeypatch)
+    cfg = tmp_path / "v2.yaml"
+    name = "nvidia/C-RADIOv4-SO400M"
+    cfg.write_text(
+        f"model:\n  vision: {{kind: radio, name: {name}, revision: null, image_size: 512}}\n",
+        encoding="utf-8",
+    )
+    assert mod.pin_revision(cfg, name, "c0457f5").startswith("pinned")
+    text = cfg.read_text(encoding="utf-8")
+    assert f"name: {name}, revision: c0457f5, image_size: 512" in text
+    assert mod.pin_revision(cfg, name, "c0457f5").endswith("already pinned at c0457f5")
+    assert "pins" in mod.pin_revision(
+        cfg, name, "ffffff0"
+    )  # a different fetch: reported, not rewritten
+    assert cfg.read_text(encoding="utf-8") == text

@@ -2,11 +2,11 @@
 # from the SigLIP 2 giant text tower, the paper's resampler (64 latents) and 12-layer f_enc (768), the
 # SigLIP sigmoid loss, and a Qwen3.5-0.8B generation head fed the joint states.
 # Expected at build: (512/16)^2 = 1024 vision tokens x 1152, d_t 768, teacher width = the SigLIP 2 g joint
-# space (text_config.projection_size). Download: python scripts/fetch_models.py --only v2 (also prints the
-# C-RADIO commit to pin as vision.revision: its remote code runs with trust_remote_code).
+# space (text_config.projection_size). Download: python scripts/fetch_models.py --only v2. vision.revision pins
+# C-RADIO's remote code (trust_remote_code), fetched 2026-10-15.
 _include: [paper.yaml]
 model:
-  vision: {kind: radio, name: nvidia/C-RADIOv4-SO400M, revision: null, image_size: 512}
+  vision: {kind: radio, name: nvidia/C-RADIOv4-SO400M, revision: c0457f5dc26ca145f954cd4fc5bb6114e5705ad8, image_size: 512}
   text: {arch: modernbert, name: jhu-clsp/mmBERT-base}
   contrastive_head: sigmoid
   logit_scale_init: 0.1          # SigLIP init: t = 1 / 0.1 = 10, b = -10
