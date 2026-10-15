@@ -105,10 +105,21 @@ def build_siglip(name: str, size: int, args: argparse.Namespace, cache: dict[str
     )
 
 
+class EncoderUnavailable(RuntimeError):
+    """The encoder cannot be scored zero-shot with what the checkpoint ships; it is skipped."""
+
+
 def build_radio(args: argparse.Namespace, cache: dict[str, Any]) -> Encoder:
     from transformers import AutoConfig, AutoModel
 
     cfg = AutoConfig.from_pretrained(RADIO_V4, trust_remote_code=True, revision=args.radio_revision)
+    if "siglip2-g" not in (getattr(cfg, "adaptor_configs", None) or {}):
+        # the Hugging Face build ships the backbone only (adaptor_configs is empty); the teacher
+        # adaptor heads come with the torch.hub release. Training uses the backbone features.
+        raise EncoderUnavailable(
+            f"{RADIO_V4} on the Hugging Face Hub has no 'siglip2-g' adaptor head (adaptor_configs is "
+            "empty), so its features cannot be compared with SigLIP 2 text zero-shot"
+        )
     cfg.adaptor_names = ["siglip2-g"]
     model = AutoModel.from_pretrained(
         RADIO_V4, config=cfg, trust_remote_code=True, revision=args.radio_revision
@@ -200,8 +211,14 @@ def main(argv: list[str] | None = None) -> int:
 
     cache: dict[str, Any] = {}
     results: dict[str, dict[str, dict[str, float]]] = {s: {} for s in splits}
+    skipped: dict[str, str] = {}
     for name in names:
-        enc = ENCODER_BUILDERS[name](args, cache)
+        try:
+            enc = ENCODER_BUILDERS[name](args, cache)
+        except EncoderUnavailable as exc:
+            skipped[name] = str(exc)
+            print(f"skipped {name}: {exc}")
+            continue
         for split in splits:
             recs, adapter = records[split]
             src = cfg.data.evals[split]

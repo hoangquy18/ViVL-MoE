@@ -62,3 +62,36 @@ def test_probe_vision_scores_every_split(tmp_path: Path, monkeypatch: pytest.Mon
         metrics = split["tiny-siglip"]
         assert {"i2t_r1", "t2i_r10", "rsum"} <= set(metrics)
         assert 0.0 <= metrics["rsum"] <= 600.0
+
+
+def test_radio_without_adaptor_heads_is_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The Hugging Face build of C-RADIOv4 ships no adaptor heads: the probe skips it, keeps the rest."""
+    probe = _load_script("probe_vision")
+
+    class _HubConfig:
+        adaptor_configs: dict = {}
+
+    monkeypatch.setattr("transformers.AutoConfig.from_pretrained", lambda *a, **k: _HubConfig())
+    model_dir = tmp_path / "tiny-siglip"
+    _tiny_siglip(model_dir)
+    monkeypatch.setattr(
+        probe,
+        "ENCODER_BUILDERS",
+        {
+            "tiny-siglip": lambda args, cache: probe.build_siglip(str(model_dir), 32, args, cache),
+            "radio": probe.build_radio,
+        },
+    )
+    syn, out = tmp_path / "syn", tmp_path / "probe.json"
+    rc = probe.main(
+        [
+            "--config", str(SMOKE), "--encoders", "radio,tiny-siglip", "--device", "cpu",
+            "--workers", "0", "--batch-size", "4", "--out", str(out),
+            f"data.evals.ktvic_dev.root={syn}", f"data.evals.uitviic_dev.root={syn}",
+        ]
+    )  # fmt: skip
+    assert rc == 0 and "skipped radio" in capsys.readouterr().out
+    results = json.loads(out.read_text(encoding="utf-8"))
+    assert all(set(split) == {"tiny-siglip"} for split in results.values())

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Bước 3: hai phép kiểm tra trước khi train (docs/runbook.md mục 2.5). Gửi lại log cho Claude.
-#   a) probe_vision: truy xuất zero-shot tiếng Việt trên KTVIC/UIT-ViIC dev của SigLIP2-g, SigLIP2-So400m và
-#      C-RADIOv4 -> chọn vision encoder (cột rsum); số của siglip2-g cũng là chất lượng teacher bước distill.
+#   a) probe_vision: truy xuất zero-shot tiếng Việt trên KTVIC/UIT-ViIC dev của SigLIP2-g (và So400m khi
+#      PRETRAIN_ONLY=0); số của siglip2-g là chất lượng teacher bước distill. C-RADIOv4 bị bỏ qua: bản trên
+#      Hugging Face không kèm head adaptor siglip2-g (train chỉ dùng feature backbone nên không ảnh hưởng).
 #   b) check_llm_head: Qwen3.5-0.8B load đủ trọng số, perplexity tiếng Việt, gradient, sinh theo batch.
 #
 #   bash scripts/gpu/3_checks.sh          # ~20-40 phút trên 1 A40

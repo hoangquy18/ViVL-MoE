@@ -205,7 +205,8 @@ trên máy GPU. Chạy hai lệnh này trước khi train v2; kết quả quyế
 # Môi trường v2 (transformers >= 5.2, timm); v1 vẫn chạy được trong môi trường này
 pip install -r requirements-v2.txt && pip install -e .
 
-# 1) Truy xuất zero-shot tiếng Việt trên KTVIC/UIT-ViIC dev: SigLIP2-g, SigLIP2-So400m, C-RADIOv4 (adaptor siglip2-g).
+# 1) Truy xuất zero-shot tiếng Việt trên KTVIC/UIT-ViIC dev: SigLIP2-g, SigLIP2-So400m. C-RADIOv4 bị bỏ qua (dòng
+#    "skipped radio"): bản HF chỉ có backbone, head adaptor siglip2-g nằm ở bản torch.hub; train không cần adaptor.
 #    Cột rsum chọn vision encoder; số của siglip2-g cũng cho biết teacher của bước distill đọc tiếng Việt tốt đến đâu.
 python scripts/probe_vision.py data.evals.ktvic_dev.root=/data/vivlmoe/ktvic_dataset \
     data.evals.uitviic_dev.root=/data/vivlmoe/uitvic_dataset
