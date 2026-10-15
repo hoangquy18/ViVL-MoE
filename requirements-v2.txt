@@ -1,10 +1,12 @@
 # v2 environment (C-RADIOv4 vision tower, mmBERT, Qwen3.5 LLM head): CUDA training box only.
-# Qwen3.5 needs transformers >= 5.2 and C-RADIOv4's remote code needs timm. The v1 code and tests also run here.
+# Qwen3.5 needs transformers >= 5.2; C-RADIOv4's remote code needs timm and einops. The v1 code and tests also run here.
 -r requirements-common.txt
 torch>=2.6
 torchvision>=0.21
 transformers>=5.2,<6
 timm>=1.0
+einops>=0.7          # imported at module level by C-RADIOv4's remote code
+setuptools           # its distutils shim: C-RADIOv4's extra_models.py imports distutils
 # Optional, CUDA builds: fast kernels for Qwen3.5's linear-attention layers (scripts/check_llm_head.py reports them)
 # flash-linear-attention
 # causal-conv1d

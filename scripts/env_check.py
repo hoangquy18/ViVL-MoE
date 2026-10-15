@@ -39,13 +39,15 @@ def check_v2() -> bool:
     """The v2 path: timm (C-RADIO remote code), torch>=2.6, transformers with Qwen3.5."""
     ok = True
     print("== v2 (requirements-v2.txt) ==")
-    try:
-        import timm
-
-        print(f"  ok   timm               {_version(timm)}")
-    except ImportError:
-        ok = False
-        print("  MISS timm (C-RADIO's remote code imports it)")
+    for name in ("timm", "einops", "distutils"):  # imported by C-RADIO's remote code
+        try:
+            mod = importlib.import_module(name)
+            print(f"  ok   {name:18s} {_version(mod)}")
+        except ImportError:
+            ok = False
+            print(
+                f"  MISS {name} (C-RADIO's remote code imports it; pip install -r requirements-v2.txt)"
+            )
     import torch
     import transformers
 
