@@ -16,6 +16,9 @@ from vivlmoe.config.schema import LoggingCfg
 from vivlmoe.training.distributed import DistContext
 
 _FORMAT = "%(asctime)s %(levelname)s [rank %(rank)s] %(name)s: %(message)s"
+# libraries whose DEBUG records would flood train.log: PIL logs every PNG chunk and EXIF tag it decodes, in
+# each DataLoader worker (the workers inherit this setup)
+_QUIET = ("PIL",)
 
 
 class _RankFilter(logging.Filter):
@@ -34,6 +37,8 @@ def setup_logging(ctx: DistContext, run_dir: Path | None = None, level: int = lo
     for h in list(root.handlers):
         root.removeHandler(h)
     root.setLevel(logging.DEBUG)
+    for name in _QUIET:
+        logging.getLogger(name).setLevel(logging.INFO)
     formatter = logging.Formatter(_FORMAT)
     rank_filter = _RankFilter(ctx.rank)
     console = logging.StreamHandler(sys.stderr)
