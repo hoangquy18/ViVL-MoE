@@ -151,3 +151,16 @@ def test_causal_lm_collator_prompt_and_eos_terminated_answers(bundle) -> None:
     assert "labels" not in caption and "input_ids" not in caption
     with pytest.raises(ValueError, match="has no {question}"):
         CausalLMCollator(None, dec, with_text=False, train=True, llm_prompt_template="{question}")
+
+
+def test_teacher_mask_even_when_the_tokenizer_does_not_list_it(bundle) -> None:
+    """SigLIP tokenizers have model_input_names = ["input_ids"]; transformers 5 then omits the mask."""
+    from tests.fakes import tiny_clip_tokenizer
+
+    teacher = tiny_clip_tokenizer()
+    teacher.model_input_names = ["input_ids"]
+    assert "attention_mask" not in teacher(["a dog"])  # the behaviour that broke the GPU run
+    items = [{"uid": 0, "src": "a dog", "tgt": "chó"}]
+    batch = TeacherCollator(teacher, bundle.vi, en_max_len=64, vi_max_len=16)(items)
+    assert batch["en_input_ids"].shape == batch["en_attention_mask"].shape == (1, 64)
+    assert int(batch["en_attention_mask"].sum()) == 4  # bos a dog eos

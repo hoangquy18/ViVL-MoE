@@ -42,6 +42,9 @@ def _encode(
         max_length=max_len,
         return_tensors="pt",
         return_token_type_ids=False,
+        # explicit: SigLIP tokenizers list only input_ids in model_input_names, and transformers 5
+        # then leaves the mask out
+        return_attention_mask=True,
     )
     return enc["input_ids"].long(), enc["attention_mask"].long()
 
@@ -201,6 +204,7 @@ class CausalLMCollator(Seq2SeqCollator):
             max_length=self.max_prompt_len,
             return_tensors="pt",
             return_token_type_ids=False,
+            return_attention_mask=True,
         )
         batch["llm_input_ids"] = enc["input_ids"].long()
         batch["llm_attention_mask"] = enc["attention_mask"].long()

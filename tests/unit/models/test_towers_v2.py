@@ -70,9 +70,10 @@ def test_radio_tower_is_frozen_only() -> None:
 def test_radio_pretrained_runs_pinned_remote_code(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: dict = {}
 
-    def fake_from_pretrained(path: str, **kw: object) -> RadioStub:
+    def fake_from_pretrained(path: str, **kw: object) -> tuple[RadioStub, dict]:
         calls.update(path=path, **kw)
-        return RadioStub(embed_dim=24, patch_size=16, preferred_resolution=64)
+        stub = RadioStub(embed_dim=24, patch_size=16, preferred_resolution=64)
+        return stub, {"missing_keys": calls.get("missing", [])}
 
     monkeypatch.setattr("transformers.AutoModel.from_pretrained", fake_from_pretrained)
     tower = build_vision_tower(
@@ -82,6 +83,9 @@ def test_radio_pretrained_runs_pinned_remote_code(monkeypatch: pytest.MonkeyPatc
     assert tower.provenance == "hf:nvidia/C-RADIOv4-SO400M@abc123"
     # no image_size: the model's preferred resolution
     assert (tower.image_size, tower.num_tokens, tower.hidden_size) == (64, 16, 24)
+    calls["missing"] = ["radio_model.model.norm.weight"]  # a weight the checkpoint does not provide
+    with pytest.raises(RuntimeError, match="lacks 1 weights"):
+        build_vision_tower(VisionCfg(kind="radio", name="nvidia/C-RADIOv4-SO400M"))
 
 
 def test_modernbert_text_tower_tiny_and_pretrained(tmp_path: Path) -> None:

@@ -58,9 +58,18 @@ class RadioVisionTower(BaseVisionTower):
         if cfg.pretrained:
             from transformers import AutoModel
 
-            self.model = AutoModel.from_pretrained(
-                resolve_model_path(cfg.name), trust_remote_code=True, revision=cfg.revision
+            self.model, info = AutoModel.from_pretrained(
+                resolve_model_path(cfg.name),
+                trust_remote_code=True,
+                revision=cfg.revision,
+                output_loading_info=True,
             )
+            missing = sorted(info.get("missing_keys") or [])
+            if missing:  # newer transformers build on the meta device and would init these randomly
+                raise RuntimeError(
+                    f"{cfg.name}: the checkpoint lacks {len(missing)} weights of the remote model "
+                    f"(e.g. {missing[:3]}); they would be random"
+                )
             self.provenance = f"hf:{cfg.name}" + (f"@{cfg.revision}" if cfg.revision else "")
         else:
             if cfg.tiny_config is None:

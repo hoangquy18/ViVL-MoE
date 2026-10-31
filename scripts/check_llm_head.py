@@ -60,7 +60,7 @@ TINY_CONFIGS: dict[str, dict[str, Any]] = {
 def check_perplexity(
     model: Any, tokenizer: Any, device: torch.device, max_ppl: float
 ) -> tuple[bool, str]:
-    enc = tokenizer(VI_SENTENCES, return_tensors="pt", padding=True)
+    enc = tokenizer(VI_SENTENCES, return_tensors="pt", padding=True, return_attention_mask=True)
     ids, mask = enc["input_ids"].to(device), enc["attention_mask"].to(device)
     labels = ids.masked_fill(mask == 0, -100)
     with (
