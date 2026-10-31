@@ -15,6 +15,7 @@ git clone https://github.com/hoangquy18/ViVL-MoE.git && cd ViVL-MoE
 | 1b | `1b_shrink_images.sh` | ổ < ~200 GB: thu nhỏ ảnh corpus để cạnh ngắn còn 512 px (C-RADIO ép về 512, model không mất gì); 104 GB → ~60 GB | 10–30 phút |
 | 2 | `2_fetch_models.sh` | tải C-RADIOv4, mmBERT, SigLIP2-g (thêm SigLIP2-So400m, Qwen3.5 khi `PRETRAIN_ONLY=0`) vào cache HF; ghim commit C-RADIO vào `configs/model/v2.yaml` | 10–30 phút |
 | 3 | `3_checks.sh` | `probe_vision` (chọn vision encoder) + `check_llm_head` (Qwen3.5 dùng được không); **gửi log `logs/3_*.log` cho Claude** | 20–40 phút |
+| 3b | `3b_bench_speed.sh` | đo tốc độ: C-RADIO forward (GPU, ảnh ngẫu nhiên) và DataLoader (CPU, ảnh thật) tách riêng; **gửi log `logs/3b_bench_speed.log` cho Claude** | ~5 phút |
 | 4 | `4_preflight.sh` | chạy thử cả chuỗi pretrain, mỗi bước 4 step, vào `runs_preflight/` (bắt lỗi đường dẫn, OOM) | 30–60 phút |
 | 5 | `5_pretrain.sh` | pretrain thật: distill → align → upcycle → sparse vào `runs/v2_*` (chạy trong tmux), kèm worker 5c ở nền | ~1,5 ngày |
 | 5b | `5b_backup_checkpoints.sh` | sao lưu `best.pt` từng bước + log lên repo model **private** `CKPT_REPO` (cần token có quyền write); trước khi trả máy, khi 5c đã dừng | tuỳ mạng (~10 GB) |
@@ -29,6 +30,7 @@ bash scripts/gpu/1_pull_data.sh
 bash scripts/gpu/1b_shrink_images.sh   # chỉ khi ổ < ~200 GB
 bash scripts/gpu/2_fetch_models.sh
 bash scripts/gpu/3_checks.sh
+bash scripts/gpu/3b_bench_speed.sh
 bash scripts/gpu/4_preflight.sh
 hf auth login                               # token có quyền GHI vào CKPT_REPO (bước 5 kiểm tra trước khi train)
 tmux new -s v2 'bash scripts/gpu/5_pretrain.sh'
