@@ -228,6 +228,7 @@ class DataSourceCfg:
     splits: dict[str, SplitSpec] = field(default_factory=dict)
     image_check: Literal["none", "exists", "decode"] = "exists"
     missing_image_policy: Literal["skip", "error"] = "error"  # pretraining corpora use skip
+    check_workers: int = 1  # processes for the image check (scripts/build_manifest.py --workers)
     holdout: HoldoutSpec | None = None
     text_normalize: str = "none"  # preset name: none | pretrain | vimacsa_legacy
     manifest_cache: str | None = None

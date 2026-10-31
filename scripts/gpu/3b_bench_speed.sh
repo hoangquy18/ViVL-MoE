@@ -22,6 +22,8 @@ export HF_HUB_OFFLINE=1
   log "GPU: C-RADIO forward, ảnh ngẫu nhiên"
   run python scripts/bench_vision.py --config configs/v2/align.yaml
   log "CPU: DataLoader của align, ảnh thật (batch 256)"
-  run python scripts/bench_loader.py --config configs/v2/align.yaml --batches 12 "data.train.root=$DATA_ROOT"
+  # image_check=none như preflight: không thì nó kiểm từng ảnh của corpus (hàng giờ) trước khi đo
+  run python scripts/bench_loader.py --config configs/v2/align.yaml --batches 12 "data.train.root=$DATA_ROOT" \
+    data.train.image_check=none
 } 2>&1 | tee -a "$LOG_DIR/3b_bench_speed.log"
 log "xong bước 3b: gửi Claude $LOG_DIR/3b_bench_speed.log"

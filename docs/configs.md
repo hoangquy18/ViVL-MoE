@@ -251,6 +251,7 @@ One dataset source. ``kind`` selects the adapter; ``options`` are validated by t
 | `splits` | dict[str, [SplitSpec](#splitspec)] | `{}` |  |
 | `image_check` | 'none' \| 'exists' \| 'decode' | `'exists'` |  |
 | `missing_image_policy` | 'skip' \| 'error' | `'error'` | pretraining corpora use skip |
+| `check_workers` | int | `1` | processes for the image check (scripts/build_manifest.py --workers) |
 | `holdout` | [HoldoutSpec](#holdoutspec) \| None | `None` |  |
 | `text_normalize` | str | `'none'` | preset name: none | pretrain | vimacsa_legacy |
 | `manifest_cache` | str \| None | `None` |  |

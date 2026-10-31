@@ -11,9 +11,13 @@ from __future__ import annotations
 import gzip
 import json
 import logging
+import multiprocessing
 import os
+import sys
 from collections.abc import Iterable
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, replace
+from itertools import repeat
 from pathlib import Path
 from typing import Literal
 
@@ -93,20 +97,44 @@ def _record_refs(record: object) -> tuple[ImageRef, ...]:
     return ()
 
 
-def check_image_keys(
-    store: ImageStore, refs: Iterable[ImageRef], level: CheckLevel
-) -> dict[str, str]:
-    """Return ``{ref_key: reason}`` for every bad reference (deduplicated)."""
+def _check_chunk(store: ImageStore, refs: list[ImageRef], level: CheckLevel) -> dict[str, str]:
     bad: dict[str, str] = {}
-    seen: set[str] = set()
     for ref in refs:
-        k = _ref_key(ref)
-        if k in seen:
-            continue
-        seen.add(k)
         reason = _check_ref(store, ref, level)
         if reason is not None:
-            bad[k] = reason
+            bad[_ref_key(ref)] = reason
+    return bad
+
+
+def check_image_keys(
+    store: ImageStore,
+    refs: Iterable[ImageRef],
+    level: CheckLevel,
+    workers: int = 1,
+    chunk: int = 512,
+) -> dict[str, str]:
+    """Return ``{ref_key: reason}`` for every bad reference (deduplicated).
+
+    ``workers > 1`` checks chunks of ``chunk`` images in that many processes: a decode pass over the
+    ~378K images of the pretraining corpus takes hours on one core (PNGs have no draft decoding).
+    """
+    unique = list({_ref_key(ref): ref for ref in refs}.values())
+    if workers <= 1 or len(unique) <= chunk:
+        return _check_chunk(store, unique, level)
+    parts = [unique[i : i + chunk] for i in range(0, len(unique), chunk)]
+    # fork shares the parent's imports; macOS forks deadlock with Arrow/OpenMP (as in the DataLoader)
+    ctx = multiprocessing.get_context("spawn" if sys.platform == "darwin" else "fork")
+    bad: dict[str, str] = {}
+    report = max(len(parts) // 10, 1)
+    with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as pool:
+        results = pool.map(_check_chunk, repeat(store), parts, repeat(level))
+        for i, part in enumerate(results, 1):
+            bad.update(part)
+            if i % report == 0 or i == len(parts):
+                done = min(i * chunk, len(unique))
+                log.info(
+                    "image check (%s): %d / %d images, %d bad", level, done, len(unique), len(bad)
+                )
     return bad
 
 
@@ -116,6 +144,7 @@ def validate_records(
     level: CheckLevel = "exists",
     policy: MissingPolicy = "error",
     cache_path: str | Path | None = None,
+    workers: int = 1,
 ) -> tuple[RecordSet, list[DroppedEntry]]:
     """Drop (or refuse) records whose images fail the check; ``uid`` is renumbered densely.
 
@@ -130,7 +159,7 @@ def validate_records(
     cache = Path(cache_path) if cache_path is not None else None
     bad = _read_cache(cache, key) if cache is not None else None
     if bad is None:
-        bad = check_image_keys(store, unique.values(), level)
+        bad = check_image_keys(store, unique.values(), level, workers=workers)
         if cache is not None:
             _write_cache(cache, key, bad)
             log.info("manifest cache written to %s (%d bad of %d)", cache, len(bad), len(unique))

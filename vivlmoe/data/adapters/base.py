@@ -99,6 +99,7 @@ class BaseAdapter:
                 level=level,
                 policy=self.cfg.missing_image_policy,
                 cache_path=self.manifest_cache_path(src),
+                workers=self.cfg.check_workers,
             )
         self.dropped[split] = dropped
         normalizer = build_normalizer(self.cfg.text_normalize)

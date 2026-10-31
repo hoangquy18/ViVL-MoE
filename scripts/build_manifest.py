@@ -2,7 +2,8 @@
 """One-off image validation of a corpus config, writing the manifest cache used at training time.
 
     python scripts/build_manifest.py --config configs/pretrain/stage2_contrastive.yaml \
-        [--source train | --source evals.ktvic_dev] [--level decode] [--split train] [--out DIR]
+        [--source train | --source evals.ktvic_dev] [--level decode] [--split train] [--out DIR] \
+        [--workers N]
 
 The cache (gzip JSON of bad image keys) is keyed by store + level + number of unique images, so
 ``data.<source>.manifest_cache`` in the config must point at the same directory/file. The list of
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -35,6 +37,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--policy", choices=["skip", "error"], default=None)
     ap.add_argument("--out", default=None, help="manifest cache directory (default: from config)")
+    ap.add_argument(
+        "--workers",
+        type=int,
+        default=min(16, os.cpu_count() or 1),
+        help="processes checking images in parallel",
+    )
     ap.add_argument("overrides", nargs="*", help="key=value config overrides")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -54,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         src.missing_image_policy = args.policy
     if args.out:
         src.manifest_cache = args.out
+    src.check_workers = args.workers
     if not src.manifest_cache:
         raise SystemExit("set data.<source>.manifest_cache in the config or pass --out")
     split = args.split or src.split

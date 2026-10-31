@@ -6,7 +6,7 @@ import pytest
 
 from tests.unit.data.conftest import write_images
 from vivlmoe.data.image_store import ImageLoadError, LocalImageStore
-from vivlmoe.data.manifest import validate_records, write_dropped
+from vivlmoe.data.manifest import check_image_keys, validate_records, write_dropped
 from vivlmoe.data.records import (
     ColumnarImageText,
     ImageRef,
@@ -79,3 +79,15 @@ def test_multi_image_records_lose_only_bad_images(store: LocalImageStore, tmp_pa
     assert p.read_text().count("missing.jpg") == 2
     with pytest.raises(ImageLoadError):
         validate_records(recs, store, "exists", "error")
+
+
+def test_parallel_image_check_finds_the_same_bad_images(tmp_path: Path) -> None:
+    names = [f"img_{i}.jpg" for i in range(10)]
+    write_images(tmp_path, names)
+    (tmp_path / "img_3.jpg").write_bytes(b"\xff\xd8junk")  # corrupt
+    (tmp_path / "img_7.jpg").unlink()  # missing
+    store = LocalImageStore(tmp_path)
+    refs = [ImageRef(source=0, key=n) for n in names + names[:4]]  # duplicates too
+    serial = check_image_keys(store, refs, "decode")
+    assert sorted(serial) == ["0:img_3.jpg", "0:img_7.jpg"]
+    assert check_image_keys(store, refs, "decode", workers=2, chunk=3) == serial
