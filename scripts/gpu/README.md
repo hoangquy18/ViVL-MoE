@@ -17,6 +17,7 @@ git clone https://github.com/hoangquy18/ViVL-MoE.git && cd ViVL-MoE
 | 3 | `3_checks.sh` | `probe_vision` (chọn vision encoder) + `check_llm_head` (Qwen3.5 dùng được không); **gửi log `logs/3_*.log` cho Claude** | 20–40 phút |
 | 4 | `4_preflight.sh` | chạy thử cả chuỗi pretrain, mỗi bước 4 step, vào `runs_preflight/` (bắt lỗi đường dẫn, OOM) | 30–60 phút |
 | 5 | `5_pretrain.sh` | pretrain thật: distill → align → upcycle → sparse vào `runs/v2_*` (chạy trong tmux) | ~1,5 ngày |
+| 5b | `5b_backup_checkpoints.sh` | sao lưu `best.pt` từng bước + log lên repo model **private** `CKPT_REPO` (cần token có quyền write); trước khi trả máy | tuỳ mạng (~10 GB) |
 | 6 | `6_downstream.sh` | caption, VQA, ViMACSA trên backbone sparse; `SEEDS="0 1 2 3 4"` cho số liệu cuối | caption ~2 giờ/seed, VQA 3–10 giờ/seed |
 | 7 | `7_delete_public_data.sh` | train xong hẳn: xoá repo HF public (gõ lại tên repo để xác nhận) | – |
 
@@ -29,6 +30,7 @@ bash scripts/gpu/2_fetch_models.sh
 bash scripts/gpu/3_checks.sh
 bash scripts/gpu/4_preflight.sh
 tmux new -s v2 'bash scripts/gpu/5_pretrain.sh'
+bash scripts/gpu/5b_backup_checkpoints.sh   # trước khi trả máy
 tmux new -s ds 'bash scripts/gpu/6_downstream.sh'
 ```
 

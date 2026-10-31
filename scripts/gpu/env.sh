@@ -20,6 +20,7 @@ export VIMACSA_ROOT=${VIMACSA_ROOT:-}
 
 export HF_REPO=${HF_REPO:-nhq188/vivlmoe-pretrain}                  # ảnh + corpus (public, tạm thời)
 export HF_EXTRAS_REPO=${HF_EXTRAS_REPO:-nhq188/vivlmoe-pretrain-extras}  # PhoMT, KTVIC, UIT-ViIC (private)
+export CKPT_REPO=${CKPT_REPO:-nhq188/vivlmoe-v2-checkpoints}         # bước 5b: sao lưu checkpoint (private)
 # Tải xuống: Xet (hf_xet) nhanh và bền hơn đường xet-bridge dùng khi tắt Xet (đọc hay quá hạn 10 s rồi resume).
 # Upload từ Mac mới cần HF_HUB_DISABLE_XET=1 (runbook 2.3).
 export HF_HUB_DISABLE_XET=${HF_HUB_DISABLE_XET:-0}
