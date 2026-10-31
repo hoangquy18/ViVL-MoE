@@ -51,7 +51,9 @@ run() { echo "+ $*"; if [ "${DRY_RUN:-0}" != 1 ]; then "$@"; fi; }
 # x accum 2; 1x 3090 -> 128 x accum 4 (còn 128 cặp mỗi step). NGPU / GPU_MEM_GB / GPU_CC ghi đè phần tự dò.
 # GPU chưa có bf16 thật (compute capability < 8.0: Turing như Quadro RTX 8000, Volta): bf16 ở đó là giả lập, chậm
 # ~10 lần fp16, nên train fp16 (GradScaler) và chạy cả teacher của distill bằng fp16 (C-RADIO và SigLIP2-g đã kiểm:
-# không tràn số, lệch fp32 < 0,3%).
+# không tràn số, lệch fp32 < 0,3%). GradScaler bắt đầu ở 2^16 và giảm nửa sau mỗi step tràn số; gradient của sigmoid
+# loss (tổng trên 256 text, nhân t = 10) cần ~5-7 lần giảm ở đầu align/sparse, quá ngưỡng mặc định 5 step bị bỏ liên
+# tiếp, nên nới lên 16 (vẫn bắt được run hỏng thật: sau 16 lần, scale < 1).
 pretrain_overrides() {
   local ngpu=${NGPU:-} mem=${GPU_MEM_GB:-} cc=${GPU_CC:-}
   if [ -z "$ngpu" ] || [ -z "$mem" ]; then
@@ -68,7 +70,7 @@ pretrain_overrides() {
   accum=$(( (512 + per * ngpu - 1) / (per * ngpu) ))
   out="data.batch_size=$per train.grad_accum_steps=$accum"
   if [ -n "$cc" ] && [ "${cc%%.*}" -lt 8 ]; then
-    out="$out train.amp.dtype=fp16 train.amp.teacher_autocast=true"
+    out="$out train.amp.dtype=fp16 train.amp.teacher_autocast=true train.max_consecutive_nonfinite=16"
   fi
   echo "$out"
 }

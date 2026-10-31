@@ -46,7 +46,7 @@ def test_downstream_runs_only_datasets_with_data(tmp_path: Path) -> None:
     assert "bỏ qua uitviic_caption" in out and "bỏ qua openvivqa" in out
 
 
-FP16 = " train.amp.dtype=fp16 train.amp.teacher_autocast=true"
+FP16 = " train.amp.dtype=fp16 train.amp.teacher_autocast=true train.max_consecutive_nonfinite=16"
 
 
 @pytest.mark.parametrize(
