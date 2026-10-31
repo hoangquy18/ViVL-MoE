@@ -64,3 +64,42 @@ def test_pretrain_batch_follows_the_hardware(
         ["bash", "-c", script], env=env, capture_output=True, text=True, check=True
     )
     assert out.stdout.strip() == expected
+
+
+def _dry_run(script: str, tmp_path: Path, **env: str) -> list[str]:
+    full = {
+        **os.environ,
+        "DRY_RUN": "1",
+        "VENV": str(tmp_path / "no-venv"),
+        "LOG_DIR": str(tmp_path / "logs"),
+        "RUNS": str(tmp_path / "runs"),
+        "NGPU": "1",
+        "GPU_MEM_GB": "48",
+        **env,
+    }
+    out = subprocess.run(
+        ["bash", str(REPO / "scripts" / "gpu" / script)],
+        env=full,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return [ln for ln in out.splitlines() if ln.startswith("+ ")]
+
+
+def test_pretrain_checks_the_backup_login_before_training(tmp_path: Path) -> None:
+    commands = _dry_run("5_pretrain.sh", tmp_path)
+    assert len(commands) == 2
+    assert "hf_checkpoints.py check --repo nhq188/vivlmoe-v2-checkpoints" in commands[0]
+    assert "HF_HUB_OFFLINE=0" in commands[0] and "scripts/run_pretrain.sh" in commands[1]
+    no_backup = _dry_run("5_pretrain.sh", tmp_path, AUTO_BACKUP="0")
+    assert len(no_backup) == 1 and "scripts/run_pretrain.sh" in no_backup[0]
+
+
+def test_autobackup_worker_watches_the_runs(tmp_path: Path) -> None:
+    commands = _dry_run("5c_autobackup.sh", tmp_path, BACKUP_CHECK="0", BACKUP_INTERVAL="60")
+    assert commands == [
+        "+ exec nice -n 10 python scripts/hf_checkpoints.py watch --repo "
+        f"nhq188/vivlmoe-v2-checkpoints --runs {tmp_path / 'runs'} --interval 60"
+    ]
+    assert "check --repo" in _dry_run("5c_autobackup.sh", tmp_path)[0]

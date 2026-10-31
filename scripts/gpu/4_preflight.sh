@@ -23,4 +23,10 @@ if [ "${DRY_RUN:-0}" != 1 ] && [ "${KEEP_PREFLIGHT:-0}" != 1 ] && [ -d runs_pref
   log "chạy thử thành công: xoá runs_preflight/ ($(du -sh runs_preflight | cut -f1)) để giải phóng đĩa"
   rm -rf runs_preflight
 fi
+# Bước 5 dừng ngay từ đầu nếu không đẩy được checkpoint lên HF (AUTO_BACKUP=1): báo trước ở đây.
+if [ "${AUTO_BACKUP:-1}" = 1 ]; then
+  run env HF_HUB_OFFLINE=0 python scripts/hf_checkpoints.py check --repo "$CKPT_REPO" \
+    || log "CẢNH BÁO: chưa đẩy được lên $CKPT_REPO nên bước 5 sẽ dừng: đăng nhập token có quyền GHI" \
+      "(.venv/bin/hf auth login), hoặc chạy bước 5 với AUTO_BACKUP=0"
+fi
 log "xong bước 4 (log: $LOG_DIR/4_preflight.log). Tiếp theo, trong tmux: bash scripts/gpu/5_pretrain.sh"

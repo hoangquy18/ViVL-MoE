@@ -16,8 +16,9 @@ git clone https://github.com/hoangquy18/ViVL-MoE.git && cd ViVL-MoE
 | 2 | `2_fetch_models.sh` | tải C-RADIOv4, mmBERT, SigLIP2-g (thêm SigLIP2-So400m, Qwen3.5 khi `PRETRAIN_ONLY=0`) vào cache HF; ghim commit C-RADIO vào `configs/model/v2.yaml` | 10–30 phút |
 | 3 | `3_checks.sh` | `probe_vision` (chọn vision encoder) + `check_llm_head` (Qwen3.5 dùng được không); **gửi log `logs/3_*.log` cho Claude** | 20–40 phút |
 | 4 | `4_preflight.sh` | chạy thử cả chuỗi pretrain, mỗi bước 4 step, vào `runs_preflight/` (bắt lỗi đường dẫn, OOM) | 30–60 phút |
-| 5 | `5_pretrain.sh` | pretrain thật: distill → align → upcycle → sparse vào `runs/v2_*` (chạy trong tmux) | ~1,5 ngày |
-| 5b | `5b_backup_checkpoints.sh` | sao lưu `best.pt` từng bước + log lên repo model **private** `CKPT_REPO` (cần token có quyền write); trước khi trả máy | tuỳ mạng (~10 GB) |
+| 5 | `5_pretrain.sh` | pretrain thật: distill → align → upcycle → sparse vào `runs/v2_*` (chạy trong tmux), kèm worker 5c ở nền | ~1,5 ngày |
+| 5b | `5b_backup_checkpoints.sh` | sao lưu `best.pt` từng bước + log lên repo model **private** `CKPT_REPO` (cần token có quyền write); trước khi trả máy, khi 5c đã dừng | tuỳ mạng (~10 GB) |
+| 5c | `5c_autobackup.sh` | worker sao lưu chạy song song bước 5 (bước 5 tự chạy): mỗi checkpoint mới (`last.pt` có optimizer, `best.pt`, `upcycled.pt`) + log lên `CKPT_REPO` trong vòng 5 phút | suốt lúc train |
 | 6 | `6_downstream.sh` | caption, VQA, ViMACSA trên backbone sparse; `SEEDS="0 1 2 3 4"` cho số liệu cuối | caption ~2 giờ/seed, VQA 3–10 giờ/seed |
 | 7 | `7_delete_public_data.sh` | train xong hẳn: xoá repo HF public (gõ lại tên repo để xác nhận) | – |
 
@@ -29,8 +30,9 @@ bash scripts/gpu/1b_shrink_images.sh   # chỉ khi ổ < ~200 GB
 bash scripts/gpu/2_fetch_models.sh
 bash scripts/gpu/3_checks.sh
 bash scripts/gpu/4_preflight.sh
+hf auth login                               # token có quyền GHI vào CKPT_REPO (bước 5 kiểm tra trước khi train)
 tmux new -s v2 'bash scripts/gpu/5_pretrain.sh'
-bash scripts/gpu/5b_backup_checkpoints.sh   # trước khi trả máy
+bash scripts/gpu/5b_backup_checkpoints.sh   # trước khi trả máy (worker 5c đã đẩy gần hết)
 tmux new -s ds 'bash scripts/gpu/6_downstream.sh'
 ```
 
@@ -46,6 +48,11 @@ Ghi chú:
   Downstream (bước 6) với head Qwen3.5 cần card ≥ 40 GB; trên card 24 GB thì chưa vừa.
 - Bước 5 và 6 chạy lâu: luôn chạy trong tmux (`tmux attach -t v2` để xem lại). Bị ngắt thì chạy lại đúng lệnh:
   bước đã xong được bỏ qua, bước dở dang chạy tiếp từ `last.pt`.
+- Sao lưu khi train (`AUTO_BACKUP=1`, mặc định): bước 5 kiểm tra token ghi được vào `CKPT_REPO` rồi chạy worker
+  5c ở nền (`logs/5c_autobackup.log`). Mỗi checkpoint lên HF cùng sidecar trong một commit; đè bản cũ thì lịch sử
+  repo được squash để không tốn quota (HF cập nhật quota trong ~36 giờ). Máy sập: thuê máy mới, chạy bước 0-2,
+  `.venv/bin/python scripts/hf_checkpoints.py pull --repo $CKPT_REPO`, rồi chạy lại bước 5 (train tiếp từ
+  `last.pt`). `BACKUP_INTERVAL` đổi chu kỳ (giây); `AUTO_BACKUP=0` tắt.
 - Hết bộ nhớ (OOM) ở pretrain: giảm nửa batch mỗi GPU, gấp đôi accum (ghi đè giá trị tự chỉnh), ví dụ trên
   2× 3090: `EXTRA="data.batch_size=64 train.grad_accum_steps=4" bash scripts/gpu/4_preflight.sh --fresh`, rồi
   dùng đúng `EXTRA` đó cho `5_pretrain.sh`. Ở downstream:

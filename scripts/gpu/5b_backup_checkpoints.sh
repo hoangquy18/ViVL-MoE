@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Bước 5b: sao lưu kết quả pretrain lên repo model PRIVATE trên HuggingFace trước khi trả máy thuê (máy bị xoá
 # là mất hết). Đẩy best.pt của từng bước, upcycled.pt, config, log, metrics, TensorBoard (~10 GB); repo public
-# bị từ chối. Chạy lại an toàn: file đã có trên repo (cùng kích thước) được bỏ qua.
+# bị từ chối. Chỉ file mới hoặc đã đổi kể từ lần đẩy trước mới lên (ghi nhận trong runs/.hf_backup.json), nên
+# chạy lại an toàn. Bước 5 chạy kèm worker sao lưu (5c, mặc định) thì mọi thứ đã nằm trên HF: bước này chỉ để
+# chắc chắn, và phải đợi worker dừng (một runs/ chỉ có một tiến trình đẩy).
 #
 #   bash scripts/gpu/5b_backup_checkpoints.sh --dry-run      # xem danh sách file, không gọi mạng
 #   bash scripts/gpu/5b_backup_checkpoints.sh
@@ -12,6 +14,7 @@
 # Khôi phục ở máy khác: python scripts/hf_checkpoints.py pull --repo $CKPT_REPO
 source "$(dirname "$0")/env.sh"
 activate
+export HF_HUB_OFFLINE=0
 
 args=(push --repo "$CKPT_REPO" --runs "$RUNS")
 [ "${WITH_LAST:-0}" = 1 ] && args+=(--with-last)
