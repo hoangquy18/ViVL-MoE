@@ -11,5 +11,6 @@ init_from: {path: runs/v2_moe_upcycled/upcycled.pt, load: [all]}
 data: {transform: {source: tower}, batch_size: 256}
 train: {max_steps: 6000, grad_accum_steps: 2}
 checkpoint: {keep_last_n: 1}   # ~10.5 GB per step checkpoint (MoE weights + AdamW); best.pt stays
-# mmBERT recomputes its activations in the backward pass: ~1% more compute, and the MoE step fits 24 GB cards
-model_overrides: {text: {gradient_checkpointing: true}}
+# mmBERT and f_enc recompute their activations in the backward pass (a few % more compute): at batch 256 the
+# MoE layers alone held ~20 GB of activations, and the step ran at the limit of a 48 GB card
+model_overrides: {text: {gradient_checkpointing: true}, encoder: {gradient_checkpointing: true}}

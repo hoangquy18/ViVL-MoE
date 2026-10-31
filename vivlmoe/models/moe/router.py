@@ -3,8 +3,9 @@
 * ``z = W_r x`` is computed in fp32 with autocast disabled.
 * Selection ``S(x) = Top-k(z + b)`` uses the aux-free bias ``b`` (Eq. 21, a non-gradient buffer);
   the renormalised gates ``p~ = softmax(z[S(x)])`` (Eq. 15) come from ``z`` alone.
-* ``dispatch_counts`` / ``token_count`` (int64, non-persistent) accumulate only in training mode; the
-  bias is **never** updated here (Task -> :func:`vivlmoe.models.moe.balancing.aux_free_bias_step`).
+* ``dispatch_counts`` / ``token_count`` (int64, non-persistent) accumulate only in training mode, and not
+  while a checkpointed layer is recomputed (``count_dispatch``); the bias is **never** updated here
+  (Task -> :func:`vivlmoe.models.moe.balancing.aux_free_bias_step`).
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ class Router(nn.Module):
             "dispatch_counts", torch.zeros(num_routed, dtype=torch.int64), persistent=False
         )
         self.register_buffer("token_count", torch.zeros((), dtype=torch.int64), persistent=False)
+        self.count_dispatch = True  # off while the encoder recomputes a checkpointed layer
 
     def forward(self, x: torch.Tensor, modality_ids: torch.Tensor, layer_idx: int) -> RouterOutput:
         """``x [T, d]`` (valid tokens only), ``modality_ids [T]`` -> :class:`RouterOutput` (fp32)."""
@@ -50,7 +52,7 @@ class Router(nn.Module):
             selection = logits + self.expert_bias if self.aux_free_bias else logits  # Eq. 21
             topk_idx = selection.topk(self.top_k, dim=-1).indices  # [T, k]
             topk_probs = torch.softmax(logits.gather(1, topk_idx), dim=-1)  # Eq. 15 (from z)
-        if self.training:
+        if self.training and self.count_dispatch:
             with torch.no_grad():
                 one_hot = F.one_hot(topk_idx, self.num_routed)  # [T, k, N_r]
                 self.dispatch_counts += one_hot.sum(dim=(0, 1)).to(torch.int64)

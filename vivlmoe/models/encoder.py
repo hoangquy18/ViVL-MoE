@@ -4,12 +4,15 @@ Dense: every layer's FFN is a :class:`DenseFFN`. Sparse (``cfg.moe`` set): the F
 ``vivlmoe.models.moe.moe_ffn.MoEFFN`` (milestone M6), whose ``router`` exposes ``expert_bias`` (persistent
 buffer ``[N_r]``), ``dispatch_counts`` (int64 ``[N_r]``) and ``token_count`` (int64 scalar). The encoder
 performs no collectives; the Task all-reduces ``dispatch_stats()`` and calls ``apply_router_bias_update``.
+With ``gradient_checkpointing`` each layer keeps only its input and is recomputed in the backward pass;
+the routers count their tokens in the forward pass only.
 """
 
 from __future__ import annotations
 
 import torch
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 
 from vivlmoe.config.schema import EncoderCfg, MoECfg
 from vivlmoe.models.block import TransformerBlock
@@ -52,12 +55,42 @@ class MultimodalEncoder(nn.Module):
             raise ValueError(
                 f"modality_ids must be [B,S]={tuple(x.shape[:2])}, got {tuple(modality_ids.shape)}"
             )
+        recompute = self.cfg.gradient_checkpointing and self.training and torch.is_grad_enabled()
         router_outputs: list[RouterOutput] = []
         for layer in self.layers:
-            x, ro = layer(x, key_padding_mask, modality_ids)
+            if recompute:
+                x, ro = self._checkpointed(layer, x, key_padding_mask, modality_ids)
+            else:
+                x, ro = layer(x, key_padding_mask, modality_ids)
             if ro is not None:
                 router_outputs.append(ro)
         return EncoderOutput(last_hidden_state=x, router_outputs=router_outputs)
+
+    @staticmethod
+    def _checkpointed(
+        layer: nn.Module,
+        x: torch.Tensor,
+        key_padding_mask: torch.Tensor | None,
+        modality_ids: torch.Tensor,
+    ) -> tuple[torch.Tensor, RouterOutput | None]:
+        """``layer`` keeping only its input: the backward pass runs it again (same dropout masks)."""
+        router = getattr(layer.ffn, "router", None)
+        calls = 0
+
+        def run(
+            x: torch.Tensor, key_padding_mask: torch.Tensor | None, modality_ids: torch.Tensor
+        ) -> tuple[torch.Tensor, RouterOutput | None]:
+            nonlocal calls
+            calls += 1
+            if router is None or calls == 1:
+                return layer(x, key_padding_mask, modality_ids)
+            router.count_dispatch = False  # the recomputation must not count the tokens twice
+            try:
+                return layer(x, key_padding_mask, modality_ids)
+            finally:
+                router.count_dispatch = True
+
+        return checkpoint(run, x, key_padding_mask, modality_ids, use_reentrant=False)
 
     # ---------------------------------------------------------------- MoE API (no collectives)
     @property

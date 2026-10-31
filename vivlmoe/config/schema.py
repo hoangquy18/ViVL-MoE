@@ -85,6 +85,9 @@ class EncoderCfg:
         0.1  # inside DenseFFN (act -> dropout -> fc2); separates identical shared experts
     )
     ln_eps: float = 1.0e-5
+    # the sparse MoE step at batch 256 otherwise holds ~20 GB of expert activations (one shared + two
+    # routed FFNs per token)
+    gradient_checkpointing: bool = False  # recompute each layer in the backward pass
 
 
 @dataclass

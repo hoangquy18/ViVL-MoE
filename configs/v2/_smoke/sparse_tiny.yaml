@@ -1,8 +1,10 @@
 # CPU smoke: v2 sparse training of the upcycled smoke checkpoint (configs/_smoke/moe_tiny.yaml schedule,
 # routing probe every 2 steps); the sigmoid loss and the RADIO stub come with the inherited model section.
+# Gradient checkpointing as in configs/v2/sparse.yaml (mmBERT and f_enc recompute in the backward pass).
 _include: [../../_smoke/moe_tiny.yaml]
 run: {name: sparse_tiny, dir: runs/_smoke_v2}
 model: {from_checkpoint: runs/_smoke_v2/upcycle_tiny/upcycled.pt}
+model_overrides: {text: {gradient_checkpointing: true}, encoder: {gradient_checkpointing: true}}
 init_from: {path: runs/_smoke_v2/upcycle_tiny/upcycled.pt, load: [all]}
 data:
   train: {root: runs/_smoke_v2/synthetic_data}

@@ -93,3 +93,26 @@ def test_bias_step_edge_cases() -> None:
     )
     with pytest.raises(ValueError, match="f must be"):
         enc.apply_router_bias_update(torch.zeros(2, 3), 0.1)
+
+
+def test_gradient_checkpointing_matches_and_counts_tokens_once() -> None:
+    from dataclasses import replace
+
+    x, mask, mids = _inputs()
+    runs = []
+    for recompute in (False, True):
+        torch.manual_seed(0)
+        enc_cfg = replace(ENC, dropout=0.1, attn_dropout=0.1, gradient_checkpointing=recompute)
+        enc = MultimodalEncoder(enc_cfg, MOE).train()
+        torch.manual_seed(1)  # the same dropout masks in both runs
+        out = enc(x, mask, mids)
+        loss = out.last_hidden_state.square().mean()
+        loss = loss + sum(ro.logits.square().mean() for ro in out.router_outputs)
+        loss.backward()
+        grads = {n: p.grad.clone() for n, p in enc.named_parameters() if p.grad is not None}
+        runs.append((out.last_hidden_state.detach(), grads, enc.dispatch_stats().clone()))
+    (h0, g0, s0), (h1, g1, s1) = runs
+    assert torch.allclose(h0, h1, atol=1e-6)
+    assert g0.keys() == g1.keys() and all(torch.allclose(g0[n], g1[n], atol=1e-6) for n in g0)
+    assert torch.equal(s0, s1)  # the recomputation did not count the tokens a second time
+    assert (s1[:, -1] == int(mask.sum())).all()
