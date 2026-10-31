@@ -37,6 +37,7 @@ export VENV=${VENV:-$REPO/.venv}
 RUNS=${RUNS:-runs}                         # thư mục run thật (bước 4 luôn dùng runs_preflight/)
 LOG_DIR=${LOG_DIR:-$REPO/logs}
 export TOKENIZERS_PARALLELISM=false PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}  # less fragmentation
 mkdir -p "$LOG_DIR"
 
 log() { printf '\n[%s] %s\n' "$(date '+%F %T')" "$*"; }

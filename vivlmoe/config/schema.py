@@ -44,6 +44,7 @@ class VisionCfg:
         "auto"  # auto: bf16 when frozen on CUDA, else fp32
     )
     gradient_checkpointing: bool = False  # needed for Stage 3 (ViT-H @378 trainable)
+    frozen_batch_chunk: int | None = None  # frozen tower: images per forward chunk (memory only)
 
 
 @dataclass
@@ -565,6 +566,8 @@ class RunConfig:
                 "model.vision.apply_post_layernorm only applies to CLIP towers (SigLIP's last hidden "
                 "state is already post-LN; C-RADIO returns normalised features)"
             )
+        if v.frozen_batch_chunk is not None and v.frozen_batch_chunk < 1:
+            raise ConfigError("model.vision.frozen_batch_chunk must be >= 1 (or null)")
         if v.kind == "radio" and v.gradient_checkpointing:
             raise ConfigError(
                 "model.vision: C-RADIO towers are frozen-only (no gradient checkpointing)"

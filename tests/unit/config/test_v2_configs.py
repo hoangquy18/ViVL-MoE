@@ -27,6 +27,7 @@ def test_v2_model_configs() -> None:
         512,
     )
     assert (m.text.arch, m.text.name) == ("modernbert", "jhu-clsp/mmBERT-base")
+    assert m.vision.frozen_batch_chunk == 64 and m.vision.revision  # pinned remote code
     assert m.contrastive_head == "sigmoid" and m.logit_scale_init == 0.1 and m.moe is None
     s1 = m.stage1
     assert (s1.teacher_kind, s1.teacher_name) == ("siglip", "google/siglip2-giant-opt-patch16-384")

@@ -119,3 +119,18 @@ def test_tower_lookups_do_not_descend_into_a_tower() -> None:
     expected = {"vision_encoder": "vision_encoder", "text_encoder": "text_encoder"}
     assert find_tower_paths(model) == expected
     assert ckpt.find_tower_paths(model) == expected
+
+
+def test_frozen_tower_forwards_in_chunks_with_identical_features() -> None:
+    torch.manual_seed(0)
+    whole = build_vision_tower(VisionCfg(kind="radio", pretrained=False, tiny_config=RADIO_TINY))
+    chunked = build_vision_tower(
+        VisionCfg(kind="radio", pretrained=False, tiny_config=RADIO_TINY, frozen_batch_chunk=2)
+    )
+    chunked.load_state_dict(whole.state_dict())
+    calls: list[int] = []
+    inner = chunked._features
+    chunked._features = lambda px: calls.append(px.shape[0]) or inner(px)  # type: ignore[method-assign]
+    px = torch.rand(5, 3, 32, 32)
+    assert torch.allclose(chunked(px), whole(px), atol=1e-6)
+    assert calls == [2, 2, 1]

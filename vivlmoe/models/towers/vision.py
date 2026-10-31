@@ -134,8 +134,14 @@ class BaseVisionTower(nn.Module):
         trainable = self.trainable
         # never cast the weights here (fingerprint stability)
         weight_dtype = next(self.model.parameters()).dtype
+        x = pixel_values.to(weight_dtype)
+        chunk = self.cfg.frozen_batch_chunk
         with torch.set_grad_enabled(trainable and torch.is_grad_enabled()):
-            hidden = self._features(pixel_values.to(weight_dtype))
+            if not trainable and chunk and x.shape[0] > chunk:
+                # frozen, no autograd graph: the same features with a fraction of the activation peak
+                hidden = torch.cat([self._features(part) for part in x.split(chunk)])
+            else:
+                hidden = self._features(x)
         if hidden.shape[1] != self.num_tokens or hidden.shape[2] != self.hidden_size:
             raise RuntimeError(
                 f"{type(self).__name__} produced {tuple(hidden.shape)}, expected "

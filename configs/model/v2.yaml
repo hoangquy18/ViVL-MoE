@@ -6,7 +6,9 @@
 # C-RADIO's remote code (trust_remote_code), fetched 2026-10-15.
 _include: [paper.yaml]
 model:
-  vision: {kind: radio, name: nvidia/C-RADIOv4-SO400M, revision: c0457f5dc26ca145f954cd4fc5bb6114e5705ad8, image_size: 512}
+  # frozen_batch_chunk: C-RADIO at 512 px runs 64 images at a time (no grad, so the result is identical; a 256-image
+  # forward ran out of memory on a 48 GB card)
+  vision: {kind: radio, name: nvidia/C-RADIOv4-SO400M, revision: c0457f5dc26ca145f954cd4fc5bb6114e5705ad8, image_size: 512, frozen_batch_chunk: 64}
   text: {arch: modernbert, name: jhu-clsp/mmBERT-base}
   contrastive_head: sigmoid
   logit_scale_init: 0.1          # SigLIP init: t = 1 / 0.1 = 10, b = -10
