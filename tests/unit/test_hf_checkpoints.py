@@ -1,7 +1,9 @@
-"""scripts/hf_checkpoints.py: file selection, private-only pushes, version tracking, the watcher (fake Hub)."""
+"""scripts/hf_checkpoints.py: file selection, private-only pushes, version tracking, the watcher, pruning
+replaced versions (fake Hub)."""
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -71,13 +73,29 @@ def _runs(tmp_path: Path) -> Path:
     return runs
 
 
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
 class _FakeHub:
-    def __init__(self, private: bool = True, exists: bool = True, role: str = "write") -> None:
-        self.private, self.exists, self.role = private, exists, role
+    def __init__(
+        self,
+        private: bool = True,
+        exists: bool = True,
+        role: str = "write",
+        quota: int | None = None,
+    ) -> None:
+        self.private, self.exists, self.role, self.quota = private, exists, role, quota
         self.files: dict[str, bytes] = {}
+        self.objects: dict[str, Any] = {}  # LFS store (*.pt): replaced versions stay until deleted
+        self.tags: dict[str, dict[str, bytes]] = {}
+        self.lfs_info = True
         self.commits: list[list[str]] = []
         self.squashes = 0
         self.during_commit: Any = None  # what the trainer does while an upload runs
+
+    def used(self) -> int:
+        return sum(obj.size for obj in self.objects.values())
 
     def whoami(self) -> dict:
         return {"name": "me", "auth": {"accessToken": {"role": self.role}}}
@@ -92,19 +110,48 @@ class _FakeHub:
     def repo_info(self, repo_id: str, **kw: Any) -> Any:
         return SimpleNamespace(private=self.private)
 
-    def list_repo_tree(self, repo_id: str, **kw: Any) -> list[Any]:
-        return [SimpleNamespace(path=p, size=len(d)) for p, d in self.files.items()]
+    def list_repo_tree(self, repo_id: str, revision: str | None = None, **kw: Any) -> list[Any]:
+        files = self.tags.get(revision or "main", self.files)
+        return [SimpleNamespace(path=p, size=len(d), lfs=self._lfs(p, d)) for p, d in files.items()]
+
+    def _lfs(self, path: str, data: bytes) -> Any:
+        return (
+            SimpleNamespace(sha256=_sha(data)) if self.lfs_info and path.endswith(".pt") else None
+        )
 
     def create_commit(self, repo_id: str, operations: list[Any], **kw: Any) -> None:
         if self.during_commit is not None:
             self.during_commit()
+        new = {}
         for op in operations:
             src = op.path_or_fileobj
-            self.files[op.path_in_repo] = src if isinstance(src, bytes) else Path(src).read_bytes()
-        self.commits.append(sorted(op.path_in_repo for op in operations))
+            new[op.path_in_repo] = src if isinstance(src, bytes) else Path(src).read_bytes()
+        stored = {_sha(d): (p, d) for p, d in new.items() if p.endswith(".pt")}
+        stored = {sha: pd for sha, pd in stored.items() if sha not in self.objects}
+        if self.quota is not None and self.used() + sum(len(d) for _, d in stored.values()) > (
+            self.quota
+        ):
+            raise RuntimeError("Bad request: Private storage limit reached for user me")
+        for sha, (path, data) in stored.items():
+            self.objects[sha] = SimpleNamespace(file_oid=sha, filename=path, size=len(data))
+        self.files.update(new)
+        self.commits.append(sorted(new))
 
     def super_squash_history(self, repo_id: str, **kw: Any) -> None:
         self.squashes += 1
+
+    def list_lfs_files(self, repo_id: str, **kw: Any) -> list[Any]:
+        return list(self.objects.values())
+
+    def list_repo_refs(self, repo_id: str, **kw: Any) -> Any:
+        tags = [SimpleNamespace(name=t, target_commit=t) for t in self.tags]
+        return SimpleNamespace(
+            branches=[SimpleNamespace(name="main", target_commit="c0")], tags=tags
+        )
+
+    def permanently_delete_lfs_files(self, repo_id: str, lfs_files: list[Any], **kw: Any) -> None:
+        for obj in lfs_files:
+            del self.objects[obj.file_oid]
 
 
 def _push(mod: Any, hub: _FakeHub, runs: Path) -> dict[str, int]:
@@ -227,3 +274,79 @@ def test_dry_run_needs_no_network(tmp_path: Path, capsys: pytest.CaptureFixture[
     out = capsys.readouterr().out
     assert "v2_moe_upcycled/upcycled.pt" in out and "8 files" in out and "step_" not in out
     assert "8 new or changed" in out
+
+
+def test_prune_deletes_only_the_versions_no_branch_or_tag_points_to(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mod = _load()
+    runs = _runs(tmp_path)
+    ck = runs / "v2_align" / "checkpoints"
+    hub = _FakeHub()
+    _push(mod, hub, runs)
+    hub.tags["first"] = dict(hub.files)
+    _save(ck, "best.pt", b"B" * 300, 200)
+    _save_step(ck, 200, b"t" * 300)
+    _push(mod, hub, runs)
+    _save_step(ck, 300, b"v" * 300)
+    _push(mod, hub, runs)
+    assert hub.squashes == 2 and hub.used() == 6 * 300  # squashed, every version still counts
+    assert [obj.filename for obj in mod.orphaned_lfs(hub, "me/ckpt")] == [LAST[0]]  # step 200
+    monkeypatch.setattr("huggingface_hub.HfApi", lambda: hub)
+    assert mod.main(["prune", "--repo", "me/ckpt"]) == 0
+    assert "1 replaced versions" in capsys.readouterr().out and hub.used() == 6 * 300
+    assert mod.main(["prune", "--repo", "me/ckpt", "--yes"]) == 0
+    assert hub.used() == 5 * 300 and hub.files[LAST[0]] == b"v" * 300
+
+
+def test_a_pruning_watcher_frees_the_quota_that_replaced_versions_fill(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    mod = _load()
+    runs = _runs(tmp_path)
+    ck = runs / "v2_align" / "checkpoints"
+    hub = _FakeHub(quota=5 * 300)  # the three checkpoints and two replaced versions
+    _push(mod, hub, runs)
+    _save_step(ck, 200, b"t" * 300)
+    _save(ck, "best.pt", b"B" * 300, 200)
+    _push(mod, hub, runs)
+    _save_step(ck, 300, b"v" * 300)
+    stop = mod.Stop()
+    stop.requested = True  # a single pass
+    assert mod.watch(mod.Uploader(hub, "me/ckpt", runs), "v2_*", 1.0, stop) == 1
+    assert "storage limit" in caplog.text and "prune --repo me/ckpt" in caplog.text
+    assert mod.watch(mod.Uploader(hub, "me/ckpt", runs, prune=True), "v2_*", 1.0, stop) == 0
+    assert hub.files[LAST[0]] == b"v" * 300 and hub.used() == 3 * 300  # the current versions
+
+
+def test_prune_deletes_nothing_it_cannot_match_to_the_repo_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mod = _load()
+    runs = _runs(tmp_path)
+    ck = runs / "v2_align" / "checkpoints"
+    hub = _FakeHub()
+    _push(mod, hub, runs)
+    _save_step(ck, 200, b"t" * 300)
+    _push(mod, hub, runs)
+    assert len(mod.orphaned_lfs(hub, "me/ckpt")) == 1
+    hub.lfs_info = False  # the tree no longer says which object a file is
+    monkeypatch.setattr(mod, "LFS_MIN_SIZE", 100)
+    with pytest.raises(RuntimeError, match="no LFS hash"):
+        mod.orphaned_lfs(hub, "me/ckpt")
+    monkeypatch.setattr(mod, "LFS_MIN_SIZE", 10**9)
+    with pytest.raises(RuntimeError, match="nothing deleted"):
+        mod.orphaned_lfs(hub, "me/ckpt")
+    hub.lfs_info = True
+    for obj in hub.objects.values():
+        obj.file_oid = "xet:" + obj.file_oid  # the listing names the objects differently
+    with pytest.raises(RuntimeError, match="nothing deleted"):
+        mod.orphaned_lfs(hub, "me/ckpt")
+    _save_step(ck, 300, b"v" * 300)  # a pruning upload still goes through, deleting nothing
+    assert _push_pruning(mod, hub, runs)["uploaded"] == 2 and hub.used() == 5 * 300
+    assert hub.files[LAST[0]] == b"v" * 300
+
+
+def _push_pruning(mod: Any, hub: _FakeHub, runs: Path) -> dict[str, int]:
+    uploader = mod.Uploader(hub, "me/ckpt", runs, prune=True)
+    return uploader.push(mod.select_files(runs, "v2_*", with_last=True))

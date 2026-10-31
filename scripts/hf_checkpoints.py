@@ -3,7 +3,8 @@
 
     python scripts/hf_checkpoints.py check --repo USER/NAME
     python scripts/hf_checkpoints.py push  --repo USER/NAME [--runs runs] [--pattern 'v2_*'] [--with-last] [--dry-run]
-    python scripts/hf_checkpoints.py watch --repo USER/NAME [--runs runs] [--interval 300] [--log-file F]
+    python scripts/hf_checkpoints.py watch --repo USER/NAME [--runs runs] [--interval 300] [--log-file F] [--prune]
+    python scripts/hf_checkpoints.py prune --repo USER/NAME [--yes]
     python scripts/hf_checkpoints.py pull  --repo USER/NAME [--runs runs]
 
 ``push`` uploads, from every run directory matching ``--pattern``, everything but the step checkpoints:
@@ -20,8 +21,11 @@ Each checkpoint goes up in a commit of its own together with its ``.meta.json`` 
 that pins the version being uploaded (the trainer may prune or replace the file meanwhile); the other
 files go in one commit, read at once. The uploaded file versions (target, inode, size, mtime) are kept in
 ``runs/.hf_backup.json``: only new or changed files go up, and an interrupted push is rerun as is. When a
-checkpoint replaces one already on the Hub, the repo history is squashed, or every old version would keep
-counting against the storage quota (the Hub frees it within ~36 h).
+checkpoint replaces one already on the Hub, the repo history is squashed. The Hub still keeps every
+replaced version (its LFS object) and counts it against the storage quota, squashed or not: a free account
+is full after a few dozen checkpoint versions. ``prune`` lists the versions that no branch or tag points to
+and, with ``--yes``, deletes them for good; ``watch --prune`` does so around each checkpoint upload, which
+keeps the repo at about the size of its current files.
 
 The repo is created private and its visibility is checked: a public repo is refused (the runs derive from
 data such as PhoMT that must not be redistributed). The token is the one of ``hf auth login``; pushing
@@ -50,6 +54,7 @@ LOCK = ".hf_backup.lock"  # one uploader per runs/ directory
 PINS = ".hf_backup_pins"  # hard links to the checkpoint versions being uploaded
 SIDECAR = ".meta.json"
 SIDECAR_GRACE_S = 60  # the trainer writes a sidecar right after its checkpoint
+LFS_MIN_SIZE = 10 * 2**20  # the Hub stores larger files in LFS
 README = """# ViVL-MoE v2 pretraining runs (private backup)
 
 Mirror of `runs/` on the training machine: `best.pt` of every stage, `upcycled.pt`, configs, logs and
@@ -129,6 +134,36 @@ def remote_sizes(api: Any, repo_id: str) -> dict[str, int]:
     return sizes
 
 
+def orphaned_lfs(api: Any, repo_id: str) -> list[Any]:
+    """The LFS objects of ``repo_id`` that no branch or tag points to: replaced file versions."""
+    # objects before trees: one committed in between is then in a tree, or missing here
+    objects = list(api.list_lfs_files(repo_id, repo_type=REPO_TYPE))
+    if not objects:
+        return []
+    refs = api.list_repo_refs(repo_id, repo_type=REPO_TYPE)
+    live: set[str] = set()
+    for ref in [*refs.branches, *refs.tags]:
+        tree = api.list_repo_tree(
+            repo_id, repo_type=REPO_TYPE, revision=ref.target_commit, recursive=True
+        )
+        for item in tree:
+            sha = getattr(getattr(item, "lfs", None), "sha256", None)
+            if sha:
+                live.add(sha)
+            elif (getattr(item, "size", None) or 0) > LFS_MIN_SIZE:
+                raise RuntimeError(f"{item.path} ({ref.name}) has no LFS hash: nothing deleted")
+    if not live or not live <= {obj.file_oid for obj in objects}:
+        raise RuntimeError(
+            f"the LFS objects of {repo_id} do not match its files (a commit in between?): "
+            "nothing deleted"
+        )
+    return [obj for obj in objects if obj.file_oid not in live]
+
+
+def _gb(objects: list[Any]) -> float:
+    return sum(int(obj.size) for obj in objects) / 1e9
+
+
 def _sidecar(sidecar: Path, ckpt: os.stat_result) -> tuple[bool, tuple[bytes, str] | None]:
     """(ready, (content, version) or None) for the sidecar of a pinned checkpoint.
 
@@ -173,8 +208,8 @@ def _exclusive(runs: Path) -> Iterator[None]:
 class Uploader:
     """Pushes the new or changed files of ``runs`` to a private repo (see the module docstring)."""
 
-    def __init__(self, api: Any, repo_id: str, runs: Path) -> None:
-        self.api, self.repo_id, self.runs = api, repo_id, runs
+    def __init__(self, api: Any, repo_id: str, runs: Path, prune: bool = False) -> None:
+        self.api, self.repo_id, self.runs, self.prune = api, repo_id, runs, prune
         self.state = self._load_state()
 
     def _load_state(self) -> dict[str, str]:
@@ -223,6 +258,8 @@ class Uploader:
             len(ckpts),
             self.repo_id,
         )
+        if ckpts and self.prune:  # room for them: versions left by a failed pass, or a full quota
+            self._prune()
         uploaded, replaced = 0, False
         for rel in ckpts:  # before the logs: a failing commit must not hold them back
             n = self._push_checkpoint(rel)
@@ -230,6 +267,8 @@ class Uploader:
             replaced |= n > 0 and rel.as_posix() in remote
         if replaced:
             self._squash()
+            if self.prune:
+                self._prune()
         uploaded += self._push_files(rest, readme="README.md" not in remote)
         return {"selected": len(files), "uploaded": uploaded}
 
@@ -316,12 +355,26 @@ class Uploader:
         try:
             self.api.super_squash_history(self.repo_id, repo_type=REPO_TYPE)
         except Exception as e:  # the backup itself went through
-            log.warning(
-                "could not squash %s (%s): old checkpoints still use quota", self.repo_id, e
-            )
+            log.warning("could not squash %s (%s)", self.repo_id, e)
         else:
+            hint = "" if self.prune else ": the replaced versions use quota until `prune --yes`"
+            log.info("squashed %s%s", self.repo_id, hint)
+
+    def _prune(self) -> None:
+        """Delete for good the replaced versions, which use storage quota even once squashed."""
+        try:
+            orphans = orphaned_lfs(self.api, self.repo_id)
+            if orphans:
+                self.api.permanently_delete_lfs_files(self.repo_id, orphans, repo_type=REPO_TYPE)
+        except Exception as e:  # the uploads still go through while the quota lasts
+            log.warning("could not delete the replaced versions in %s (%s)", self.repo_id, e)
+            return
+        if orphans:
             log.info(
-                "squashed %s: replaced checkpoints are freed (quota within ~36 h)", self.repo_id
+                "deleted %d replaced versions (%.1f GB) from %s",
+                len(orphans),
+                _gb(orphans),
+                self.repo_id,
             )
 
 
@@ -355,6 +408,13 @@ def watch(uploader: Uploader, pattern: str, interval: float, stop: Stop) -> int:
                 log.warning(
                     "backup pass failed (%s: %s); retry in %.0f s", type(e).__name__, e, interval
                 )
+            if "storage limit" in str(e) and not uploader.prune:
+                log.warning(
+                    "the Hub storage quota is full: `python scripts/hf_checkpoints.py prune --repo %s`"
+                    " lists the replaced versions that fill it (--yes deletes them; the worker does"
+                    " it itself with --prune)",
+                    uploader.repo_id,
+                )
         if final:
             return int(failed)
         deadline = time.monotonic() + interval
@@ -385,6 +445,16 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--pattern", default="v2_*")
     w.add_argument("--interval", type=float, default=300.0, help="seconds between two passes")
     w.add_argument("--log-file", help="also append the log to this file")
+    w.add_argument(
+        "--prune",
+        action="store_true",
+        help="delete for good the versions that uploads replace (else they keep using quota)",
+    )
+    d = sub.add_parser(
+        "prune", help="list the replaced versions that use storage quota; --yes deletes them"
+    )
+    d.add_argument("--repo", required=True, help="USER/NAME of the private model repo")
+    d.add_argument("--yes", action="store_true", help="delete them for good (cannot be undone)")
     q = sub.add_parser("pull", help="restore the runs from the repo")
     q.add_argument("--repo", required=True)
     q.add_argument("--runs", default="runs")
@@ -406,6 +476,23 @@ def main(argv: list[str] | None = None) -> int:
         from huggingface_hub import HfApi
 
         log.info("ok: %s can upload to %s (private)", check(HfApi(), args.repo), args.repo)
+        return 0
+    if args.cmd == "prune":
+        from huggingface_hub import HfApi
+
+        api = HfApi()
+        orphans = orphaned_lfs(api, args.repo)
+        by_file: dict[str, list[Any]] = {}
+        for obj in orphans:
+            by_file.setdefault(obj.filename, []).append(obj)
+        for name, objs in sorted(by_file.items()):
+            print(f"{len(objs):4d} versions {_gb(objs):8.2f} GB  {name}")
+        print(f"{len(orphans)} replaced versions, {_gb(orphans):.1f} GB in {args.repo}")
+        if orphans and not args.yes:
+            print("nothing deleted: --yes deletes them for good")
+        elif orphans:
+            api.permanently_delete_lfs_files(args.repo, orphans, repo_type=REPO_TYPE)
+            log.info("deleted %d replaced versions (%.1f GB)", len(orphans), _gb(orphans))
         return 0
 
     runs = Path(args.runs)
@@ -450,7 +537,8 @@ def main(argv: list[str] | None = None) -> int:
             signal.signal(signum, on_signal)
     # no `check` here (the scripts run it first): a Hub hiccup at start must not end the backup
     with _exclusive(runs):
-        return watch(Uploader(HfApi(), args.repo, runs), args.pattern, args.interval, stop)
+        uploader = Uploader(HfApi(), args.repo, runs, prune=args.prune)
+        return watch(uploader, args.pattern, args.interval, stop)
 
 
 if __name__ == "__main__":

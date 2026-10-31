@@ -123,3 +123,5 @@ def test_autobackup_worker_watches_the_runs(tmp_path: Path) -> None:
         f"nhq188/vivlmoe-v2-checkpoints --runs {tmp_path / 'runs'} --interval 60"
     ]
     assert "check --repo" in _dry_run("5c_autobackup.sh", tmp_path)[0]
+    pruning = _dry_run("5c_autobackup.sh", tmp_path, BACKUP_CHECK="0", BACKUP_PRUNE="1")
+    assert pruning[0].endswith("--interval 300 --prune")

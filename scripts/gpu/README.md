@@ -56,7 +56,10 @@ Ghi chú:
   bước đã xong được bỏ qua, bước dở dang chạy tiếp từ `last.pt`.
 - Sao lưu khi train (`AUTO_BACKUP=1`, mặc định): bước 5 kiểm tra token ghi được vào `CKPT_REPO` rồi chạy worker
   5c ở nền (`logs/5c_autobackup.log`). Mỗi checkpoint lên HF cùng sidecar trong một commit; đè bản cũ thì lịch sử
-  repo được squash để không tốn quota (HF cập nhật quota trong ~36 giờ). Máy sập: thuê máy mới, chạy bước 0-2,
+  repo được squash, nhưng HF vẫn giữ bản bị thay và tính vào quota: tài khoản free (100 GB private) đầy sau vài
+  chục bản checkpoint, rồi lượt sao lưu nào cũng báo `Private storage limit reached`. `BACKUP_PRUNE=1` cho worker
+  xoá hẳn các bản bị thay (không khôi phục được); xoá tay: `python scripts/hf_checkpoints.py prune --repo
+  $CKPT_REPO` liệt kê, thêm `--yes` để xoá. Máy sập: thuê máy mới, chạy bước 0-2,
   `.venv/bin/python scripts/hf_checkpoints.py pull --repo $CKPT_REPO`, rồi chạy lại bước 5 (train tiếp từ
   `last.pt`). `BACKUP_INTERVAL` đổi chu kỳ (giây); `AUTO_BACKUP=0` tắt.
 - Hết bộ nhớ (OOM) ở pretrain: giảm nửa batch mỗi GPU, gấp đôi accum (ghi đè giá trị tự chỉnh), ví dụ trên
