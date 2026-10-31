@@ -32,6 +32,18 @@ if [ ! -x "$VENV/bin/python" ]; then
   run "$PY" -m venv "$VENV"
 fi
 run "$VENV/bin/pip" install -U pip wheel
+# torch khớp driver: bản trên PyPI build cho CUDA 13; driver chỉ hỗ trợ CUDA 12.x thì lấy bản cu128 / cu126
+drv=$(nvidia-smi | sed -n 's/.*CUDA Version: *\([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2/p' | head -1)
+if [ -n "$drv" ]; then
+  read -r cmaj cmin <<< "$drv"
+  if [ "$cmaj" -lt 13 ]; then
+    if [ "$cmaj" -eq 12 ] && [ "$cmin" -ge 8 ]; then idx=cu128
+    elif [ "$cmaj" -eq 12 ] && [ "$cmin" -ge 6 ]; then idx=cu126
+    else die "driver chỉ hỗ trợ CUDA $cmaj.$cmin: cần >= 12.6 (thuê máy có driver mới hơn)"; fi
+    log "driver hỗ trợ CUDA $cmaj.$cmin -> torch bản $idx"
+    run "$VENV/bin/pip" install torch torchvision --index-url "https://download.pytorch.org/whl/$idx"
+  fi
+fi
 run "$VENV/bin/pip" install -r requirements-v2.txt
 run "$VENV/bin/pip" install -e ".[dev]"      # dev: pytest (env_check cần), ruff
 if [ "${INSTALL_FAST_KERNELS:-0}" = 1 ]; then
@@ -40,6 +52,9 @@ if [ "${INSTALL_FAST_KERNELS:-0}" = 1 ]; then
 fi
 
 log "kiểm tra torch + GPU và môi trường v2"
-run "$VENV/bin/python" -c "import torch; print('torch', torch.__version__, '| cuda', torch.cuda.is_available(), '|', torch.cuda.get_device_name(0) if torch.cuda.is_available() else '-')"
+run "$VENV/bin/python" -c "import torch; print('torch', torch.__version__, '| cuda', torch.cuda.is_available(), '|', torch.cuda.device_count(), 'x', torch.cuda.get_device_name(0) if torch.cuda.is_available() else '-')"
+if [ "${DRY_RUN:-0}" != 1 ] && ! "$VENV/bin/python" -c "import torch, sys; sys.exit(not torch.cuda.is_available())"; then
+  die "torch không thấy GPU (driver hỗ trợ CUDA ${cmaj:-?}.${cmin:-?}): gửi Claude dòng trên và output của nvidia-smi"
+fi
 run "$VENV/bin/python" scripts/env_check.py --v2
 log "xong bước 0. Tiếp theo: bash scripts/gpu/1_pull_data.sh"
