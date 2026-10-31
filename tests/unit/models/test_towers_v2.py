@@ -67,6 +67,19 @@ def test_radio_tower_is_frozen_only() -> None:
         tower.set_trainable(True)
 
 
+def test_radio_tower_runs_reduced_precision_weights_without_autocast() -> None:
+    # On CUDA the frozen tower holds bf16 weights and evaluation runs without autocast, while RADIO's input
+    # conditioner casts the pixels to fp32: the first layer then met fp32 inputs and bf16 weights.
+    torch.manual_seed(0)
+    tower = build_vision_tower(VisionCfg(kind="radio", pretrained=False, tiny_config=RADIO_TINY))
+    px = torch.rand(2, 3, 32, 32)
+    ref = tower(px)
+    tower.model.to(torch.bfloat16)  # what apply_dtype_policy does on CUDA
+    out = tower(px)
+    assert out.dtype == torch.float32 and out.shape == ref.shape
+    assert torch.allclose(out, ref, atol=0.1)
+
+
 def test_radio_pretrained_runs_pinned_remote_code(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: dict = {}
 

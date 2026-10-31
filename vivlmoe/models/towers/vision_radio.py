@@ -44,12 +44,24 @@ def _preferred(model: nn.Module) -> int | None:
     return int(res[0]) if isinstance(res, tuple | list) else int(res)
 
 
+def _forward(model: nn.Module, x: torch.Tensor) -> Any:
+    """Run the remote model; reduced precision goes through autocast, the way RADIO is meant to run.
+
+    Its input conditioner casts the normalised pixels to the dtype the model was trained in (fp32), so
+    with bf16 weights and no autocast (evaluation, upcycling) the first linear layer met fp32 inputs.
+    """
+    if x.dtype in (torch.float16, torch.bfloat16):
+        with torch.autocast(device_type=x.device.type, dtype=x.dtype):
+            return model(x)
+    return model(x)
+
+
 def _feature_dim(model: nn.Module, patch_size: int) -> int:
     """Feature width from one tiny forward (the remote config does not record it)."""
     res = model.get_nearest_supported_resolution(4 * patch_size, 4 * patch_size)
     dtype = next(model.parameters()).dtype
     with torch.no_grad():
-        return int(_spatial(model(torch.zeros(1, 3, *res, dtype=dtype))).shape[-1])
+        return int(_spatial(_forward(model, torch.zeros(1, 3, *res, dtype=dtype))).shape[-1])
 
 
 class RadioVisionTower(BaseVisionTower):
@@ -101,4 +113,4 @@ class RadioVisionTower(BaseVisionTower):
         super().set_trainable(False)
 
     def _features(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        return _spatial(self.model(pixel_values))
+        return _spatial(_forward(self.model, pixel_values))
