@@ -359,6 +359,7 @@ Deterministic dev holdout by image id (Appendix A: 20% of KTVIC train).
 |---|---|---|---|
 | `enabled` | bool | `True` |  |
 | `dtype` | 'bf16' \| 'fp16' | `'bf16'` | bf16 on A40; disabled automatically on CPU |
+| `teacher_autocast` | bool | `False` | frozen distillation teacher under autocast (else fp32) |
 
 ### EarlyStoppingCfg
 

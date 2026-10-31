@@ -321,6 +321,9 @@ class ScheduleCfg:
 class AmpCfg:
     enabled: bool = True
     dtype: Literal["bf16", "fp16"] = "bf16"  # bf16 on A40; disabled automatically on CPU
+    # where fp32 is the slow path (Turing, no bf16): SigLIP 2-g targets in fp16 are 4.6x faster than fp32
+    # and within 6e-4 of them (the teacher-MSE evaluation keeps the fp32 target)
+    teacher_autocast: bool = False  # frozen distillation teacher under autocast (else fp32)
 
 
 @dataclass

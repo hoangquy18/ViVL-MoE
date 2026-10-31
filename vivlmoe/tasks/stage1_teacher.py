@@ -15,6 +15,7 @@ with the teacher's own image tower and preprocessing.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from pathlib import Path
 from typing import Any
@@ -210,8 +211,14 @@ class TeacherStudentTask(Task):
         teacher = self.teacher(sc.device)
         # The Eq. 12 regression target is computed in fp32 regardless of the Trainer's autocast
         # (bf16 by default): the teacher is frozen and cheap next to XLM-R + backward, and the
-        # TeacherMSEEvaluator compares against the same fp32 target.
-        with torch.autocast(device_type=sc.device.type, enabled=False):
+        # TeacherMSEEvaluator compares against the same fp32 target. train.amp.teacher_autocast keeps
+        # the Trainer's autocast instead, for GPUs where fp32 is the slow path (Turing).
+        precision = (
+            contextlib.nullcontext()
+            if self.cfg.train.amp.teacher_autocast
+            else torch.autocast(device_type=sc.device.type, enabled=False)
+        )
+        with precision:
             z_en = teacher(batch["en_input_ids"], batch["en_attention_mask"]).float()
         out = model(batch, "stage1")
         loss = self.loss(out.student, z_en)

@@ -4,7 +4,7 @@
     python scripts/bench_vision.py --config configs/v2/align.yaml [--batch 64] [--iters 5] [--device cuda]
 
 Random pixels at the tower's resolution, weights in the dtype training gives them (``frozen_dtype``, under
-bf16 autocast on CUDA). Next to ``scripts/bench_loader.py`` (images/s the DataLoader delivers) it tells a
+autocast on CUDA: bf16, or fp16 on GPUs without native bf16 like ``scripts/gpu/env.sh`` picks). Next to ``scripts/bench_loader.py`` (images/s the DataLoader delivers) it tells a
 GPU-bound run from a data-bound one: every optimizer step needs ``batch_size x grad_accum_steps`` images
 from both.
 """
@@ -54,6 +54,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--batch", type=int, default=64, help="images per forward (C-RADIO runs 64)")
     ap.add_argument("--iters", type=int, default=5)
     ap.add_argument("--device", default="cuda")
+    ap.add_argument(
+        "--dtype", choices=["auto", "bf16", "fp16"], default="auto", help="auto: bf16 if native"
+    )
     ap.add_argument("--profile-rows", type=int, default=15, help="0 = no profiler table")
     ap.add_argument("overrides", nargs="*")
     args = ap.parse_args(argv)
@@ -64,10 +67,15 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config(args.config, args.overrides)
     tower = build_vision_tower(cfg.model.vision).to(device)
     cuda = device.type == "cuda"
-    dtype = tower.apply_dtype_policy(torch.bfloat16 if cuda else None)
+    amp_dtype = None
+    if cuda:  # bf16 needs compute capability 8.0 (Ampere); before that it is emulated
+        native_bf16 = torch.cuda.get_device_capability(device)[0] >= 8
+        choice = args.dtype if args.dtype != "auto" else ("bf16" if native_bf16 else "fp16")
+        amp_dtype = torch.bfloat16 if choice == "bf16" else torch.float16
+    dtype = tower.apply_dtype_policy(amp_dtype)
 
     def amp() -> Any:
-        return torch.autocast("cuda", dtype=torch.bfloat16) if cuda else contextlib.nullcontext()
+        return torch.autocast("cuda", dtype=amp_dtype) if cuda else contextlib.nullcontext()
 
     gpu = f"{torch.cuda.get_device_name(device)}, CUDA {torch.version.cuda}" if cuda else "CPU"
     print(f"torch {torch.__version__} on {gpu}; {cfg.model.vision.name} weights {dtype}")

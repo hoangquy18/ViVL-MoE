@@ -96,9 +96,13 @@ def test_stage1_metrics_and_loss_are_finite(tmp_path: Path) -> None:
     assert res.tokens > 0
 
 
-def test_stage1_teacher_target_is_fp32_under_autocast(tmp_path: Path) -> None:
-    """The Eq. 12 target z_en must not carry bf16 rounding when the Trainer autocasts."""
-    cfg = load_config(SMOKE, _overrides(tmp_path, "train.max_steps=1"))
+@pytest.mark.parametrize("teacher_autocast", [False, True])
+def test_stage1_teacher_target_is_fp32_under_autocast(
+    tmp_path: Path, teacher_autocast: bool
+) -> None:
+    """The Eq. 12 target z_en carries no bf16 rounding unless train.amp.teacher_autocast (Turing)."""
+    flag = f"train.amp.teacher_autocast={str(teacher_autocast).lower()}"
+    cfg = load_config(SMOKE, _overrides(tmp_path, "train.max_steps=1", flag))
     task = build_task(cfg, CTX)
     run_dir = Path(cfg.run.dir) / cfg.run.name
     trainer = Trainer(cfg, task, CTX, run_dir)
@@ -113,7 +117,7 @@ def test_stage1_teacher_target_is_fp32_under_autocast(tmp_path: Path) -> None:
     sc = StepContext(step=0, micro=0, accum=1, device=torch.device("cpu"))
     with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
         out = task.train_step(trainer.model, batch, sc)
-    assert seen == [(torch.float32, False)]
+    assert seen == [(torch.float32, teacher_autocast)]  # the teacher returns fp32 either way
     assert torch.isfinite(out.loss)
 
 

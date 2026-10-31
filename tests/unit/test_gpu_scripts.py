@@ -46,20 +46,40 @@ def test_downstream_runs_only_datasets_with_data(tmp_path: Path) -> None:
     assert "bỏ qua uitviic_caption" in out and "bỏ qua openvivqa" in out
 
 
+FP16 = " train.amp.dtype=fp16 train.amp.teacher_autocast=true"
+
+
 @pytest.mark.parametrize(
-    ("ngpu", "mem", "expected"),
+    ("ngpu", "mem", "cc", "expected"),
     [
-        (1, 44, "data.batch_size=256 train.grad_accum_steps=2"),  # 1x A40: the config itself
-        (2, 24, "data.batch_size=128 train.grad_accum_steps=2"),  # 2x 3090: 256 pairs, 512 per step
-        (1, 24, "data.batch_size=128 train.grad_accum_steps=4"),  # 1x 3090: 128 pairs, 512 per step
-        (4, 44, "data.batch_size=64 train.grad_accum_steps=2"),  # 4x A40
+        (1, 44, "8.6", "data.batch_size=256 train.grad_accum_steps=2"),  # 1x A40: the config itself
+        (
+            2,
+            24,
+            "8.6",
+            "data.batch_size=128 train.grad_accum_steps=2",
+        ),  # 2x 3090: 256 pairs, 512/step
+        (
+            1,
+            24,
+            "8.9",
+            "data.batch_size=128 train.grad_accum_steps=4",
+        ),  # 1x 4090: 128 pairs, 512/step
+        (4, 44, "", "data.batch_size=64 train.grad_accum_steps=2"),  # 4x A40, capability unknown
+        (1, 47, "7.5", "data.batch_size=256 train.grad_accum_steps=2" + FP16),  # Quadro RTX 8000
     ],
 )
 def test_pretrain_batch_follows_the_hardware(
-    ngpu: int, mem: int, expected: str, tmp_path: Path
+    ngpu: int, mem: int, cc: str, expected: str, tmp_path: Path
 ) -> None:
     script = f'source "{REPO}/scripts/gpu/env.sh" && pretrain_overrides'
-    env = {**os.environ, "NGPU": str(ngpu), "GPU_MEM_GB": str(mem), "LOG_DIR": str(tmp_path)}
+    env = {
+        **os.environ,
+        "NGPU": str(ngpu),
+        "GPU_MEM_GB": str(mem),
+        "GPU_CC": cc,
+        "LOG_DIR": str(tmp_path),
+    }
     out = subprocess.run(
         ["bash", "-c", script], env=env, capture_output=True, text=True, check=True
     )

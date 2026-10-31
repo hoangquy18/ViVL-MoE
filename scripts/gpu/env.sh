@@ -48,21 +48,29 @@ run() { echo "+ $*"; if [ "${DRY_RUN:-0}" != 1 ]; then "$@"; fi; }
 # Batch pretrain theo phần cứng, giữ đúng công thức của config: 256 cặp mỗi step cho sigmoid loss (text được
 # all-gather giữa các GPU, nên số cặp = batch mỗi GPU x số GPU) và 512 mẫu mỗi bước tối ưu (x accum).
 # Card < 40 GB nhận tối đa 128 mẫu (256 không vừa 24 GB). Ví dụ: 1 A40 -> 256 x accum 2; 2x 3090 -> 128 x 2 GPU
-# x accum 2; 1x 3090 -> 128 x accum 4 (còn 128 cặp mỗi step). NGPU / GPU_MEM_GB ghi đè phần tự dò.
+# x accum 2; 1x 3090 -> 128 x accum 4 (còn 128 cặp mỗi step). NGPU / GPU_MEM_GB / GPU_CC ghi đè phần tự dò.
+# GPU chưa có bf16 thật (compute capability < 8.0: Turing như Quadro RTX 8000, Volta): bf16 ở đó là giả lập, chậm
+# ~10 lần fp16, nên train fp16 (GradScaler) và chạy cả teacher của distill bằng fp16 (C-RADIO và SigLIP2-g đã kiểm:
+# không tràn số, lệch fp32 < 0,3%).
 pretrain_overrides() {
-  local ngpu=${NGPU:-} mem=${GPU_MEM_GB:-}
+  local ngpu=${NGPU:-} mem=${GPU_MEM_GB:-} cc=${GPU_CC:-}
   if [ -z "$ngpu" ] || [ -z "$mem" ]; then
     command -v nvidia-smi >/dev/null || { echo ""; return 0; }
     ngpu=${NPROC:-$(nvidia-smi -L | grep -c '^GPU')}
     mem=$(( $(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | sort -n | head -1) / 1024 ))
+    cc=${cc:-$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | sort -n | head -1 || true)}
   fi
-  local cap=256 per accum
+  local cap=256 per accum out
   [ "$mem" -ge 40 ] || cap=128
   per=$((256 / ngpu))
   [ "$per" -le "$cap" ] || per=$cap
   [ "$per" -ge 1 ] || per=1
   accum=$(( (512 + per * ngpu - 1) / (per * ngpu) ))
-  echo "data.batch_size=$per train.grad_accum_steps=$accum"
+  out="data.batch_size=$per train.grad_accum_steps=$accum"
+  if [ -n "$cc" ] && [ "${cc%%.*}" -lt 8 ]; then
+    out="$out train.amp.dtype=fp16 train.amp.teacher_autocast=true"
+  fi
+  echo "$out"
 }
 
 activate() {
