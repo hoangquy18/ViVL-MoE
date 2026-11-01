@@ -10,6 +10,12 @@ model: {from_checkpoint: runs/v2_moe_upcycled/upcycled.pt}
 init_from: {path: runs/v2_moe_upcycled/upcycled.pt, load: [all]}
 data: {transform: {source: tower}, batch_size: 256}
 train: {max_steps: 6000, grad_accum_steps: 2}
+# The sigmoid temperature and bias get their own rate: AdamW moves a parameter by about lr per step, so at 1e-5
+# they would stay put (align at 1e-4 only took t from 10 to under 13; SigLIP2-g ends at t ~108, b ~-16).
+optim:
+  groups:
+    - {name: backbone, modules: [text_encoder, vision_proj, text_proj, resampler, encoder, modality_embed], lr: 1.0e-5}
+    - {name: temperature, modules: [logit_scale, logit_bias], lr: 1.0e-2}
 checkpoint: {keep_last_n: 1}   # ~10.5 GB per step checkpoint (MoE weights + AdamW); best.pt stays
 # mmBERT and f_enc recompute their activations in the backward pass (a few % more compute): at batch 256 the
 # MoE layers alone held ~20 GB of activations, and the step ran at the limit of a 48 GB card

@@ -92,6 +92,13 @@ def test_upcycle_and_sparse_configs(tmp_path: Path) -> None:
     assert (sp.data.batch_size, sp.train.grad_accum_steps) == (256, 2)
     assert sp.checkpoint.keep_last_n == 1
     assert sp.model.text.gradient_checkpointing and sp.model.moe is not None  # override + inherited
+    # the sigmoid temperature and bias get their own rate; the groups cover the MoE backbone (strict coverage)
+    assert {g.name: g.lr for g in sp.optim.groups} == {"backbone": 1.0e-5, "temperature": 1.0e-2}
+    model = build_task_model("backbone", sp.model)
+    apply_freeze(model, freeze_paths_for_preset(model, sp.optim.freeze_preset))
+    groups = {g.name: g.param_names for g in resolve_param_groups(model, sp.optim)}
+    assert set(groups) == {"backbone/decay", "backbone/no_decay", "temperature/no_decay"}
+    assert groups["temperature/no_decay"] == ["logit_scale", "logit_bias"]
 
 
 @pytest.mark.parametrize("name", [*GENERATION, "vimacsa"])

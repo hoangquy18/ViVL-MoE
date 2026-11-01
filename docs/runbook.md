@@ -335,6 +335,7 @@ torchrun --nproc_per_node 1 scripts/train.py --config configs/v2/sparse.yaml
 | chọn checkpoint distill | `eval.selection_metric: ktvic_dev/rsum` | R@K trong không gian SigLIP 2 (ảnh qua tower ảnh của teacher) |
 | loss align | `model.contrastive_head: sigmoid`, `model.logit_scale_init: 0.1`, `model.logit_bias_init: -10` | text all-gather; negative mỗi step = `batch_size × số GPU` text cho mỗi ảnh |
 | learning rate align | `optim.groups` (`text` 3e-5, `fusion` 1e-4) | preset `sparse`: chỉ vision tower đông lạnh |
+| learning rate sparse | `optim.groups` (`backbone` 1e-5, `temperature` 1e-2 cho `logit_scale` + `logit_bias`) | AdamW dịch mỗi tham số khoảng lr mỗi step: dùng chung 1e-5 thì nhiệt độ gần như đứng yên |
 
 ## 4. Phase 2 — upcycling và MoE pretraining (paper §5)
 

@@ -92,6 +92,9 @@ bình gradient của DDP cho đúng gradient của loss toàn cục (test gloo 2
 
 - Preset `sparse`: chỉ đông lạnh vision tower, nên W_v, resampler, f_enc, W_t và mmBERT đều được train.
 - Hai learning rate: `text_encoder` 3e-5 (đã distill), phần còn lại 1e-4.
+- `logit_scale` và `logit_bias` nằm chung nhóm 1e-4. AdamW dịch mỗi tham số khoảng lr mỗi step, nên t chỉ tăng từ
+  10 lên dưới 13 sau 4.266 step (SigLIP2-g kết thúc ở t ≈ 108, b ≈ −16). Run đầu tiên giữ như vậy; lần chạy align
+  sau nên tách hai tham số này thành nhóm riêng như ở sparse (mục 6).
 - Text tower lấy từ bước distill (`init_from: {load: [text_encoder]}`).
 - Config được chỉnh cho 1 A40: 256 × accum 2 = 512 mẫu mỗi bước tối ưu. Mỗi step chấm 256 ảnh với 256 text;
   có nhiều GPU thì text được all-gather (256 × số GPU).
@@ -99,9 +102,12 @@ bình gradient của DDP cho đúng gradient của loss toàn cục (test gloo 2
 
 ## 6. Bước 3–4: upcycle và sparse
 
-Không đổi so với v1. `configs/v2/upcycle.yaml` và `configs/v2/sparse.yaml` include `configs/moe/*` và chỉ đổi đường
-dẫn checkpoint, tên run (`runs/v2_*`, không đụng run v1) và `transform.source`. Loss sigmoid, C-RADIO và mmBERT đi
-theo phần `model` thừa kế từ checkpoint.
+Gần như không đổi so với v1. `configs/v2/upcycle.yaml` và `configs/v2/sparse.yaml` include `configs/moe/*` và chỉ
+đổi đường dẫn checkpoint, tên run (`runs/v2_*`, không đụng run v1) và `transform.source`. Loss sigmoid, C-RADIO và
+mmBERT đi theo phần `model` thừa kế từ checkpoint.
+
+Khác biệt duy nhất về learning rate: sparse tách `logit_scale` và `logit_bias` thành nhóm `temperature` (lr 1e-2),
+phần còn lại giữ 1e-5 (nhóm `backbone`). Nếu dùng chung 1e-5, nhiệt độ gần như đứng yên (xem mục 5).
 
 Ngân sách sparse được cắt cho 1 A40: 6.000 step × 512 ≈ 3,1 triệu mẫu (khoảng 8 epoch của 378K ảnh). Ngân sách
 của paper (20K step × 2048 ≈ 41 triệu mẫu) sẽ mất khoảng 10 ngày trên một GPU.
