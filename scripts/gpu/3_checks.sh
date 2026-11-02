@@ -3,7 +3,8 @@
 #   a) probe_vision: truy xuất zero-shot tiếng Việt trên KTVIC/UIT-ViIC dev của SigLIP2-g (và So400m khi
 #      PRETRAIN_ONLY=0); số của siglip2-g là chất lượng teacher bước distill. C-RADIOv4 bị bỏ qua: bản trên
 #      Hugging Face không kèm head adaptor siglip2-g (train chỉ dùng feature backbone nên không ảnh hưởng).
-#   b) check_llm_head: Qwen3.5-0.8B load đủ trọng số, perplexity tiếng Việt, gradient, sinh theo batch.
+#   b) check_llm_head: Qwen3.5-0.8B load đủ trọng số, perplexity tiếng Việt (dưới AMP của downstream, so với fp32),
+#      gradient hữu hạn, sinh theo batch.
 #
 #   bash scripts/gpu/3_checks.sh          # ~20-40 phút trên 1 A40
 source "$(dirname "$0")/env.sh"
@@ -23,9 +24,10 @@ if [ "$PRETRAIN_ONLY" = 1 ]; then
   log "b) bỏ qua check_llm_head (PRETRAIN_ONLY=1: head Qwen3.5 chỉ dùng ở downstream)"
   : > "$LOG_DIR/3_check_llm_head.log"
 else
-  log "b) check_llm_head (mọi dòng phải là PASS)"
+  amp=$(amp_dtype "$(gpu_cc)")   # đúng AMP mà downstream sẽ dùng (env.sh: fp16 trên GPU chưa có bf16 thật)
+  log "b) check_llm_head, AMP $amp (mọi dòng phải là PASS)"
   run python scripts/check_llm_head.py --model Qwen/Qwen3.5-0.8B --llm-class Qwen3_5ForCausalLM \
-    2>&1 | tee "$LOG_DIR/3_check_llm_head.log" || llm_ok=0
+    --amp-dtype "$amp" 2>&1 | tee "$LOG_DIR/3_check_llm_head.log" || llm_ok=0
 fi
 
 log "tóm tắt"

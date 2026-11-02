@@ -9,6 +9,8 @@
 #   OPENVIVQA_ROOT=/data/openvivqa bash scripts/gpu/6_downstream.sh          # thêm dataset VQA khi đã có file
 # Layout JSON của VQA/ViMACSA nằm trong configs/downstream/<dataset>.yaml (kiểm tra lại với file thật).
 # 1 A40: caption ~2 giờ/seed, VQA 3-10 giờ/seed. OOM: EXTRA_OVERRIDES="model_overrides.generation.gradient_checkpointing=true"
+# GPU chưa có bf16 thật (Quadro RTX 8000): tự chuyển sang AMP fp16 như pretrain (env.sh: amp_overrides); kiểm Qwen3.5
+# ở fp16 trước bằng bước 3 (check_llm_head --amp-dtype fp16). EXTRA_OVERRIDES đứng sau nên ghi đè được.
 source "$(dirname "$0")/env.sh"
 activate
 
@@ -16,6 +18,9 @@ SEEDS=${SEEDS:-0}
 DATASETS=${DATASETS:-ktvic_caption uitviic_caption openvivqa vitextvqa viocrvqa vimacsa}
 BACKBONE=$RUNS/v2_moe_sparse/checkpoints/best.pt
 [ "${DRY_RUN:-0}" = 1 ] || need "$BACKBONE" "chưa xong bước 5 (sparse)"
+amp=$(amp_overrides "$(gpu_cc)")
+[ -z "$amp" ] || log "GPU chưa có bf16 thật: AMP fp16 ($amp)"
+read -r -a AMP_ARR <<< "$amp"
 read -r -a EXTRA_ARR <<< "${EXTRA_OVERRIDES:-}"
 
 root_of() {
@@ -41,6 +46,6 @@ for name in $DATASETS; do
   run python scripts/sweep_seeds.py --config "configs/v2/downstream/$name.yaml" --seeds $SEEDS --nproc 1 \
     "run.dir=$RUNS" "model.from_checkpoint=$BACKBONE" "init_from.path=$BACKBONE" \
     "data.train.root=$root" "data.evals.dev.root=$root" "data.evals.test.root=$root" \
-    ${EXTRA_ARR[@]+"${EXTRA_ARR[@]}"} 2>&1 | tee -a "$LOG_DIR/6_downstream_$name.log"
+    ${AMP_ARR[@]+"${AMP_ARR[@]}"} ${EXTRA_ARR[@]+"${EXTRA_ARR[@]}"} 2>&1 | tee -a "$LOG_DIR/6_downstream_$name.log"
 done
 log "xong bước 6. Bảng kết quả: $RUNS/v2_*_sweep/sweep_summary.md"

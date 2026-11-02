@@ -45,33 +45,46 @@ die() { echo "LỖI: $*" >&2; exit 1; }
 need() { [ -e "$1" ] || die "thiếu $1 ($2)"; }
 run() { echo "+ $*"; if [ "${DRY_RUN:-0}" != 1 ]; then "$@"; fi; }
 
+# Precision theo GPU, dùng chung cho pretrain, downstream và check_llm_head. GPU chưa có bf16 thật (compute
+# capability < 8.0: Turing như Quadro RTX 8000, Volta): bf16 ở đó là giả lập, chậm ~10 lần fp16, nên train fp16
+# (GradScaler). GradScaler bắt đầu ở 2^16 và giảm nửa sau mỗi step tràn số; gradient của sigmoid loss (tổng trên 256
+# text, nhân t = 10) cần ~5-7 lần giảm ở đầu align/sparse, quá ngưỡng mặc định 5 step bị bỏ liên tiếp, nên nới lên 16
+# (vẫn bắt được run hỏng thật: sau 16 lần, scale < 1). GPU_CC ghi đè phần tự dò.
+gpu_cc() {  # compute capability nhỏ nhất trong máy; rỗng khi không có nvidia-smi
+  if [ -n "${GPU_CC:-}" ]; then echo "$GPU_CC"; return 0; fi
+  command -v nvidia-smi >/dev/null || return 0
+  nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | sort -n | head -1 || true
+}
+amp_dtype() {  # dtype AMP cho compute capability $1: fp16 dưới 8.0, còn lại (kể cả không rõ) bf16 như config
+  if [ -n "${1:-}" ] && [ "${1%%.*}" -lt 8 ]; then echo fp16; else echo bf16; fi
+}
+amp_overrides() {  # override cho train.py theo compute capability $1 (rỗng: giữ bf16 của config)
+  [ "$(amp_dtype "${1:-}")" = fp16 ] || return 0
+  echo "train.amp.dtype=fp16 train.max_consecutive_nonfinite=16"
+}
+
 # Batch pretrain theo phần cứng, giữ đúng công thức của config: 256 cặp mỗi step cho sigmoid loss (text được
 # all-gather giữa các GPU, nên số cặp = batch mỗi GPU x số GPU) và 512 mẫu mỗi bước tối ưu (x accum).
 # Card < 40 GB nhận tối đa 128 mẫu (256 không vừa 24 GB). Ví dụ: 1 A40 -> 256 x accum 2; 2x 3090 -> 128 x 2 GPU
 # x accum 2; 1x 3090 -> 128 x accum 4 (còn 128 cặp mỗi step). NGPU / GPU_MEM_GB / GPU_CC ghi đè phần tự dò.
-# GPU chưa có bf16 thật (compute capability < 8.0: Turing như Quadro RTX 8000, Volta): bf16 ở đó là giả lập, chậm
-# ~10 lần fp16, nên train fp16 (GradScaler) và chạy cả teacher của distill bằng fp16 (C-RADIO và SigLIP2-g đã kiểm:
-# không tràn số, lệch fp32 < 0,3%). GradScaler bắt đầu ở 2^16 và giảm nửa sau mỗi step tràn số; gradient của sigmoid
-# loss (tổng trên 256 text, nhân t = 10) cần ~5-7 lần giảm ở đầu align/sparse, quá ngưỡng mặc định 5 step bị bỏ liên
-# tiếp, nên nới lên 16 (vẫn bắt được run hỏng thật: sau 16 lần, scale < 1).
+# Với fp16, teacher của distill cũng chạy fp16 (C-RADIO và SigLIP2-g đã kiểm: không tràn số, lệch fp32 < 0,3%).
 pretrain_overrides() {
   local ngpu=${NGPU:-} mem=${GPU_MEM_GB:-} cc=${GPU_CC:-}
   if [ -z "$ngpu" ] || [ -z "$mem" ]; then
     command -v nvidia-smi >/dev/null || { echo ""; return 0; }
     ngpu=${NPROC:-$(nvidia-smi -L | grep -c '^GPU')}
     mem=$(( $(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | sort -n | head -1) / 1024 ))
-    cc=${cc:-$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | sort -n | head -1 || true)}
+    cc=${cc:-$(gpu_cc)}
   fi
-  local cap=256 per accum out
+  local cap=256 per accum out amp
   [ "$mem" -ge 40 ] || cap=128
   per=$((256 / ngpu))
   [ "$per" -le "$cap" ] || per=$cap
   [ "$per" -ge 1 ] || per=1
   accum=$(( (512 + per * ngpu - 1) / (per * ngpu) ))
   out="data.batch_size=$per train.grad_accum_steps=$accum"
-  if [ -n "$cc" ] && [ "${cc%%.*}" -lt 8 ]; then
-    out="$out train.amp.dtype=fp16 train.amp.teacher_autocast=true train.max_consecutive_nonfinite=16"
-  fi
+  amp=$(amp_overrides "$cc")
+  [ -z "$amp" ] || out="$out $amp train.amp.teacher_autocast=true"
   echo "$out"
 }
 

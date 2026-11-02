@@ -54,9 +54,34 @@ def test_check_llm_head_passes_on_tiny_models(
     arch: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     script = _load_script("check_llm_head")
-    assert script.main(["--tiny", arch, "--device", "cpu"]) == 0
+    assert script.main(["--tiny", arch, "--device", "cpu", "--amp-dtype", "fp16"]) == 0
     out = capsys.readouterr().out
     assert (
-        "PASS gradients" in out
+        "PASS gradients: every trainable parameter received a finite gradient" in out
         and "PASS batched generation: left-padded batched generation matches" in out
     )
+
+
+def test_check_llm_head_flags_non_finite_gradients() -> None:
+    script = _load_script("check_llm_head")
+    model = load_causal_lm(None, tiny_config=script.TINY_CONFIGS["qwen3"], tiny_arch="qwen3")
+    with torch.no_grad():
+        model.model.norm.weight.fill_(float("nan"))  # nan activations, as an fp16 overflow gives
+    ok, msg = script.check_gradients(model, torch.device("cpu"), "fp16")
+    assert not ok and "non-finite gradient" in msg
+
+
+@pytest.mark.parametrize(
+    ("ppl", "fp32_ppl", "ok"),
+    [
+        (12.0, 11.9, True),
+        (12.0, None, True),  # no autocast (CPU): fp32 only
+        (13.0, 11.9, False),  # 9% drift from fp32
+        (float("inf"), 11.9, False),
+        (float("nan"), 11.9, False),
+        (300.0, None, False),  # above --max-ppl: random lm_head
+    ],
+)
+def test_perplexity_verdict(ppl: float, fp32_ppl: float | None, ok: bool) -> None:
+    script = _load_script("check_llm_head")
+    assert script.perplexity_verdict(ppl, fp32_ppl, "fp16", 200.0, 0.05)[0] is ok

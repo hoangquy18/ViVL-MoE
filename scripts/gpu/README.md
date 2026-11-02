@@ -46,9 +46,10 @@ Ghi chú:
   `check_llm_head`. Đặt `PRETRAIN_ONLY=0` trước khi làm downstream.
 - Cài thêm gói thì dùng `.venv/bin/pip`, đừng dùng `pip` của conda đang bật: các script luôn chạy trong `.venv`.
 - GPU chưa có bf16 thật (compute capability < 8.0: Quadro RTX 8000, Titan RTX, V100, T4): bf16 ở đó là giả lập,
-  chậm ~10 lần. Pretrain tự chuyển sang fp16 (`pretrain_overrides` trong `env.sh`: AMP fp16 + GradScaler, teacher
-  của distill cũng fp16); C-RADIO và SigLIP2-g đã kiểm ở fp16: không tràn số, lệch fp32 < 0,3%. Nên thuê GPU từ
-  Ampere trở lên (A40, A6000, L40S, 3090/4090) nếu có.
+  chậm ~10 lần. Pretrain và downstream tự chuyển sang fp16 (`amp_overrides` trong `env.sh`: AMP fp16 + GradScaler;
+  pretrain chạy cả teacher của distill bằng fp16); C-RADIO và SigLIP2-g đã kiểm ở fp16: không tràn số, lệch fp32
+  < 0,3%. Qwen3.5 được train bằng bf16, nên bước 3 chạy `check_llm_head` ở đúng fp16 đó (perplexity so với fp32,
+  gradient hữu hạn) trước bước 6. Nên thuê GPU từ Ampere trở lên (A40, A6000, L40S, 3090/4090) nếu có.
 - Pretrain dùng mọi GPU của máy (DDP). Batch mỗi GPU tự chỉnh theo số GPU và bộ nhớ, giữ 256 cặp mỗi step cho
   sigmoid loss và 512 mẫu mỗi bước tối ưu: 1 A40 → 256 × accum 2; 2× RTX 3090 → 128 × 2 GPU × accum 2.
   Downstream (bước 6) với head Qwen3.5 cần card ≥ 40 GB; trên card 24 GB thì chưa vừa.

@@ -46,7 +46,7 @@ def test_downstream_runs_only_datasets_with_data(tmp_path: Path) -> None:
     assert "bỏ qua uitviic_caption" in out and "bỏ qua openvivqa" in out
 
 
-FP16 = " train.amp.dtype=fp16 train.amp.teacher_autocast=true train.max_consecutive_nonfinite=16"
+FP16 = " train.amp.dtype=fp16 train.max_consecutive_nonfinite=16 train.amp.teacher_autocast=true"
 
 
 @pytest.mark.parametrize(
@@ -105,6 +105,26 @@ def _dry_run(script: str, tmp_path: Path, **env: str) -> list[str]:
         check=True,
     ).stdout
     return [ln for ln in out.splitlines() if ln.startswith("+ ")]
+
+
+@pytest.mark.parametrize(("cc", "amp"), [("7.5", "fp16"), ("8.6", "bf16")])
+def test_downstream_and_llm_check_follow_the_gpu_precision(
+    cc: str, amp: str, tmp_path: Path
+) -> None:
+    (tmp_path / "ktvic").mkdir()
+    [cmd] = _dry_run(
+        "6_downstream.sh",
+        tmp_path,
+        GPU_CC=cc,
+        DATASETS="ktvic_caption",
+        KTVIC_ROOT=str(tmp_path / "ktvic"),
+        EXTRA_OVERRIDES="train.amp.dtype=bf16",
+    )
+    fp16 = "train.amp.dtype=fp16 train.max_consecutive_nonfinite=16 train.amp.dtype=bf16"
+    assert (fp16 in cmd) == (amp == "fp16")  # EXTRA_OVERRIDES come last, so they can undo it
+    assert cmd.endswith(" train.amp.dtype=bf16")
+    checks = _dry_run("3_checks.sh", tmp_path, GPU_CC=cc, PRETRAIN_ONLY="0")
+    assert "scripts/check_llm_head.py" in checks[-1] and checks[-1].endswith(f"--amp-dtype {amp}")
 
 
 def test_pretrain_checks_the_backup_login_before_training(tmp_path: Path) -> None:
